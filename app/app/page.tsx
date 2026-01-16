@@ -4,21 +4,101 @@ import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { getSession, supabase } from '../../lib/supabaseClient';
 
-type Transaction = {
-  type: 'income' | 'expense';
+type AccountKind = 'debit' | 'credit' | 'cash';
+
+interface Account {
+  id: string;
+  user_id: string;
+  name: string;
+  kind: AccountKind;
+  starting_balance: number;
+  warning_threshold: number;
+  credit_limit: number | null;
+  credit_warning_threshold: number | null;
+  debit_anchor_account_id: string | null;
+  created_at: string;
+}
+
+interface Category {
+  id: string;
+  user_id: string;
+  kind: 'income' | 'expense';
+  name: string;
+  created_at: string;
+}
+
+interface Transaction {
+  id: string;
+  user_id: string;
+  account_id: string;
+  kind: 'income' | 'expense' | 'transfer';
+  direction: 'in' | 'out';
   amount: number;
+  category_id: string | null;
+  comment: string | null;
+  transfer_id: string | null;
+  created_at: string;
+}
+
+type AccountBalance = {
+  balance: number;
+  status: 'normal' | 'orange' | 'red';
+  creditUsed?: number;
 };
 
 export default function FinanceAppPage() {
   const router = useRouter();
   const [sessionChecked, setSessionChecked] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
+
+  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [incomeInput, setIncomeInput] = useState('');
-  const [expenseInput, setExpenseInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [listLoading, setListLoading] = useState(false);
+
+  // Income form
+  const [amountIncome, setAmountIncome] = useState('');
+  const [accountIncome, setAccountIncome] = useState<string>('');
+  const [categoryIncome, setCategoryIncome] = useState<string>('');
+  const [commentIncome, setCommentIncome] = useState('');
+  const [submittingIncome, setSubmittingIncome] = useState(false);
+
+  // Expense form
+  const [amountExpense, setAmountExpense] = useState('');
+  const [accountExpense, setAccountExpense] = useState<string>('');
+  const [categoryExpense, setCategoryExpense] = useState<string>('');
+  const [commentExpense, setCommentExpense] = useState('');
+  const [submittingExpense, setSubmittingExpense] = useState(false);
+
+  // Transfer form
+  const [amountTransfer, setAmountTransfer] = useState('');
+  const [fromAccountTransfer, setFromAccountTransfer] = useState<string>('');
+  const [toAccountTransfer, setToAccountTransfer] = useState<string>('');
+  const [isCreditRepayment, setIsCreditRepayment] = useState(false);
+  const [commentTransfer, setCommentTransfer] = useState('');
+  const [submittingTransfer, setSubmittingTransfer] = useState(false);
+
+  const accountsById = useMemo(() => {
+    const map = new Map<string, Account>();
+    accounts.forEach((acc) => {
+      map.set(acc.id, acc);
+    });
+    return map;
+  }, [accounts]);
+
+  const incomeCategories = useMemo(
+    () => categories.filter((c) => c.kind === 'income'),
+    [categories],
+  );
+  const expenseCategories = useMemo(
+    () => categories.filter((c) => c.kind === 'expense'),
+    [categories],
+  );
+  const creditAccounts = useMemo(
+    () => accounts.filter((a) => a.kind === 'credit'),
+    [accounts],
+  );
 
   useEffect(() => {
     const init = async () => {
@@ -31,87 +111,370 @@ export default function FinanceAppPage() {
 
       setUserId(session.user.id);
       setSessionChecked(true);
-      fetchTransactions(session.user.id);
+      await Promise.all([
+        loadAccounts(),
+        loadCategories(),
+        loadTransactions(session.user.id),
+      ]);
     };
 
     init();
   }, [router]);
 
-  const fetchTransactions = async (uid: string) => {
-    setListLoading(true);
+  const loadAccounts = async () => {
     const { data, error: fetchError } = await supabase
-      .from('transactions')
-      .select('type, amount')
-      .eq('user_id', uid)
-      .order('created_at', { ascending: false });
-
-    setListLoading(false);
+      .from('accounts')
+      .select('*')
+      .order('created_at', { ascending: true });
 
     if (fetchError) {
       setError(fetchError.message);
       return;
     }
 
-    setTransactions(data ?? []);
+    setAccounts((data || []) as Account[]);
   };
 
-  const balance = useMemo(() => {
-    return transactions.reduce((acc, item) => {
-      if (item.type === 'income') return acc + (item.amount || 0);
-      if (item.type === 'expense') return acc - (item.amount || 0);
-      return acc;
-    }, 0);
-  }, [transactions]);
+  const loadCategories = async () => {
+    const { data, error: fetchError } = await supabase
+      .from('categories')
+      .select('*')
+      .order('created_at', { ascending: true });
 
-  const handleSubmit = async () => {
-    if (!userId) return;
-
-    const incomeValue = incomeInput ? parseFloat(incomeInput) : 0;
-    const expenseValue = expenseInput ? parseFloat(expenseInput) : 0;
-
-    if ((incomeValue && expenseValue) || (!incomeValue && !expenseValue)) {
-      setError('Заполните только одно поле: доход или расход.');
+    if (fetchError) {
+      setError(fetchError.message);
       return;
     }
 
-    if (incomeValue < 0 || expenseValue < 0) {
-      setError('Сумма должна быть больше 0.');
+    setCategories((data || []) as Category[]);
+  };
+
+  const loadTransactions = async (uid: string) => {
+    const { data, error: fetchError } = await supabase
+      .from('transactions')
+      .select('*')
+      .eq('user_id', uid)
+      .order('created_at', { ascending: false });
+
+    if (fetchError) {
+      setError(fetchError.message);
       return;
     }
 
-    const isIncome = incomeValue > 0;
-    const amount = isIncome ? incomeValue : expenseValue;
+    setTransactions((data || []) as Transaction[]);
+  };
 
-    if (!amount || Number.isNaN(amount) || amount <= 0) {
-      setError('Введите положительное число.');
-      return;
-    }
+  // Calculate balances for each account
+  const accountBalances = useMemo(() => {
+    const balances = new Map<string, AccountBalance>();
 
-    setLoading(true);
-    setError(null);
+    accounts.forEach((account) => {
+      let balance = account.starting_balance;
 
-    const { error: insertError } = await supabase.from('transactions').insert({
-      type: isIncome ? 'income' : 'expense',
-      amount,
-      user_id: userId,
+      transactions.forEach((tx) => {
+        if (tx.account_id === account.id) {
+          if (tx.direction === 'in') {
+            balance += tx.amount;
+          } else {
+            balance -= tx.amount;
+          }
+        }
+      });
+
+      let status: 'normal' | 'orange' | 'red' = 'normal';
+      let creditUsed: number | undefined;
+
+      if (account.kind === 'debit') {
+        if (balance <= 0) {
+          status = 'red';
+        } else if (balance <= account.warning_threshold) {
+          status = 'orange';
+        }
+      } else if (account.kind === 'cash') {
+        if (balance <= account.warning_threshold) {
+          status = 'orange';
+        }
+      } else if (account.kind === 'credit') {
+        creditUsed = Math.max(0, -balance);
+        const creditLimit = account.credit_limit || 0;
+        const creditWarningThreshold = account.credit_warning_threshold || 0;
+
+        if (creditUsed > creditLimit) {
+          status = 'red';
+        } else if (creditUsed >= creditLimit - creditWarningThreshold) {
+          status = 'orange';
+        }
+      }
+
+      balances.set(account.id, { balance, status, creditUsed });
     });
 
-    setLoading(false);
+    return balances;
+  }, [accounts, transactions]);
+
+  // Calculate totals
+  const totals = useMemo(() => {
+    let totalBalance = 0;
+    let debitTotal = 0;
+    let creditTotal = 0;
+    let cashTotal = 0;
+
+    accountBalances.forEach((accBalance, accountId) => {
+      const account = accountsById.get(accountId);
+      if (!account) return;
+
+      totalBalance += accBalance.balance;
+
+      if (account.kind === 'debit') {
+        debitTotal += accBalance.balance;
+      } else if (account.kind === 'credit') {
+        creditTotal += accBalance.balance;
+      } else if (account.kind === 'cash') {
+        cashTotal += accBalance.balance;
+      }
+    });
+
+    return { totalBalance, debitTotal, creditTotal, cashTotal };
+  }, [accountBalances, accountsById]);
+
+  const handleIncome = async () => {
+    if (!userId) return;
+
+    setError(null);
+
+    const amount = parseFloat(amountIncome);
+    if (!amount || Number.isNaN(amount) || amount <= 0) {
+      setError('Введите положительную сумму.');
+      return;
+    }
+
+    if (!accountIncome) {
+      setError('Выберите счёт.');
+      return;
+    }
+
+    setSubmittingIncome(true);
+
+    const { error: insertError } = await supabase.from('transactions').insert({
+      user_id: userId,
+      account_id: accountIncome,
+      kind: 'income',
+      direction: 'in',
+      amount,
+      category_id: categoryIncome || null,
+      comment: commentIncome.trim() || null,
+      transfer_id: null,
+    });
+
+    setSubmittingIncome(false);
 
     if (insertError) {
       setError(insertError.message);
       return;
     }
 
-    setIncomeInput('');
-    setExpenseInput('');
-    fetchTransactions(userId);
+    setAmountIncome('');
+    setCommentIncome('');
+    await loadTransactions(userId);
+  };
+
+  const handleExpense = async () => {
+    if (!userId) return;
+
+    setError(null);
+
+    const amount = parseFloat(amountExpense);
+    if (!amount || Number.isNaN(amount) || amount <= 0) {
+      setError('Введите положительную сумму.');
+      return;
+    }
+
+    if (!accountExpense) {
+      setError('Выберите счёт.');
+      return;
+    }
+
+    const account = accountsById.get(accountExpense);
+    if (account && account.kind === 'cash') {
+      const currentBalance = accountBalances.get(accountExpense)?.balance || 0;
+      if (amount > currentBalance) {
+        setError(`Недостаточно средств на счёте "${account.name}". Доступно: ${currentBalance.toFixed(2)}.`);
+        return;
+      }
+    }
+
+    setSubmittingExpense(true);
+
+    const { error: insertError } = await supabase.from('transactions').insert({
+      user_id: userId,
+      account_id: accountExpense,
+      kind: 'expense',
+      direction: 'out',
+      amount,
+      category_id: categoryExpense || null,
+      comment: commentExpense.trim() || null,
+      transfer_id: null,
+    });
+
+    setSubmittingExpense(false);
+
+    if (insertError) {
+      setError(insertError.message);
+      return;
+    }
+
+    setAmountExpense('');
+    setCommentExpense('');
+    await loadTransactions(userId);
+  };
+
+  const handleTransfer = async () => {
+    if (!userId) return;
+
+    setError(null);
+
+    const amount = parseFloat(amountTransfer);
+    if (!amount || Number.isNaN(amount) || amount <= 0) {
+      setError('Введите положительную сумму.');
+      return;
+    }
+
+    let fromAccountId = fromAccountTransfer;
+    let toAccountId = toAccountTransfer;
+
+    if (isCreditRepayment) {
+      if (!toAccountId) {
+        setError('Выберите кредитный счёт.');
+        return;
+      }
+
+      const creditAccount = accountsById.get(toAccountId);
+      if (!creditAccount || creditAccount.kind !== 'credit') {
+        setError('Выберите кредитный счёт.');
+        return;
+      }
+
+      if (!creditAccount.debit_anchor_account_id) {
+        setError('У выбранной кредитки нет привязанного дебетового счёта.');
+        return;
+      }
+
+      fromAccountId = creditAccount.debit_anchor_account_id;
+    } else {
+      if (!fromAccountId || !toAccountId) {
+        setError('Выберите счета "Откуда" и "Куда".');
+        return;
+      }
+
+      if (fromAccountId === toAccountId) {
+        setError('Счета "Откуда" и "Куда" не могут совпадать.');
+        return;
+      }
+    }
+
+    // Check cash restriction
+    const fromAccount = accountsById.get(fromAccountId);
+    if (fromAccount && fromAccount.kind === 'cash') {
+      const currentBalance = accountBalances.get(fromAccountId)?.balance || 0;
+      if (amount > currentBalance) {
+        setError(`Недостаточно средств на счёте "${fromAccount.name}". Доступно: ${currentBalance.toFixed(2)}.`);
+        return;
+      }
+    }
+
+    setSubmittingTransfer(true);
+
+    // Create transfer
+    const { data: transferData, error: transferError } = await supabase
+      .from('transfers')
+      .insert({
+        user_id: userId,
+        from_account_id: fromAccountId,
+        to_account_id: toAccountId,
+        amount,
+        is_credit_repayment: isCreditRepayment,
+        comment: commentTransfer.trim() || null,
+      })
+      .select()
+      .single();
+
+    if (transferError) {
+      setSubmittingTransfer(false);
+      setError(transferError.message);
+      return;
+    }
+
+    if (!transferData) {
+      setSubmittingTransfer(false);
+      setError('Ошибка при создании перевода.');
+      return;
+    }
+
+    // Create two transactions
+    const { error: txOutError } = await supabase.from('transactions').insert({
+      user_id: userId,
+      account_id: fromAccountId,
+      kind: 'transfer',
+      direction: 'out',
+      amount,
+      transfer_id: transferData.id,
+      category_id: null,
+      comment: commentTransfer.trim() || null,
+    });
+
+    if (txOutError) {
+      // Try to delete transfer (best effort)
+      await supabase.from('transfers').delete().eq('id', transferData.id);
+      setSubmittingTransfer(false);
+      setError(txOutError.message);
+      return;
+    }
+
+    const { error: txInError } = await supabase.from('transactions').insert({
+      user_id: userId,
+      account_id: toAccountId,
+      kind: 'transfer',
+      direction: 'in',
+      amount,
+      transfer_id: transferData.id,
+      category_id: null,
+      comment: commentTransfer.trim() || null,
+    });
+
+    if (txInError) {
+      // Try to delete transfer and out transaction (best effort)
+      await supabase.from('transactions').delete().eq('transfer_id', transferData.id);
+      await supabase.from('transfers').delete().eq('id', transferData.id);
+      setSubmittingTransfer(false);
+      setError(txInError.message);
+      return;
+    }
+
+    setSubmittingTransfer(false);
+    setAmountTransfer('');
+    setFromAccountTransfer('');
+    setToAccountTransfer('');
+    setIsCreditRepayment(false);
+    setCommentTransfer('');
+    await loadTransactions(userId);
   };
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
     router.replace('/login');
   };
+
+  // Update fromAccountTransfer when credit account is selected for repayment
+  useEffect(() => {
+    if (isCreditRepayment && toAccountTransfer) {
+      const creditAccount = accountsById.get(toAccountTransfer);
+      if (creditAccount && creditAccount.debit_anchor_account_id) {
+        setFromAccountTransfer(creditAccount.debit_anchor_account_id);
+      }
+    } else if (!isCreditRepayment) {
+      setFromAccountTransfer('');
+    }
+  }, [isCreditRepayment, toAccountTransfer, accountsById]);
 
   if (!sessionChecked) {
     return (
@@ -122,109 +485,405 @@ export default function FinanceAppPage() {
   }
 
   return (
-    <div className="min-h-screen bg-neutral-50 px-4 py-10">
-      <div className="mx-auto flex max-w-3xl flex-col gap-6">
+    <div className="min-h-screen bg-neutral-50 px-4 py-8">
+      <div className="mx-auto flex max-w-5xl flex-col gap-6">
         <header className="flex items-center justify-between rounded-2xl border border-neutral-200 bg-white px-6 py-4 shadow-sm">
           <div>
-            <p className="text-sm text-neutral-600">Текущий баланс</p>
-            <p className="text-3xl font-semibold text-neutral-900">
-              {balance.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₽
-            </p>
+            <h1 className="text-xl font-semibold text-neutral-900">Главная</h1>
+            <p className="text-sm text-neutral-600">Управление финансами</p>
           </div>
-          <button
-            onClick={handleLogout}
-            className="rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-800 transition hover:bg-neutral-100"
-          >
-            Logout
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => router.push('/setup')}
+              className="rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-800 transition hover:bg-neutral-100"
+            >
+              Настройки
+            </button>
+            <button
+              onClick={() => router.push('/stats')}
+              className="rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-800 transition hover:bg-neutral-100"
+            >
+              Статистика
+            </button>
+            <button
+              onClick={handleLogout}
+              className="rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-800 transition hover:bg-neutral-100"
+            >
+              Logout
+            </button>
+          </div>
         </header>
 
+        {error && (
+          <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
+        )}
+
+        {/* Summary */}
         <section className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">
-          <h2 className="mb-4 text-lg font-semibold text-neutral-900">Добавить транзакцию</h2>
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-2">
-              <label className="block text-sm font-medium text-neutral-700" htmlFor="income">
-                Доход
-              </label>
-              <input
-                id="income"
-                type="number"
-                min="0"
-                value={incomeInput}
-                onChange={(e) => setIncomeInput(e.target.value)}
-                className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
-                placeholder="Например, 5000"
-              />
+          <h2 className="mb-4 text-lg font-semibold text-neutral-900">Сводка</h2>
+          <div className="grid gap-4 md:grid-cols-4">
+            <div>
+              <p className="text-xs text-neutral-600">Общий баланс</p>
+              <p className="text-2xl font-semibold text-neutral-900">
+                {totals.totalBalance.toLocaleString('ru-RU', {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}{' '}
+                ₽
+              </p>
             </div>
-            <div className="space-y-2">
-              <label className="block text-sm font-medium text-neutral-700" htmlFor="expense">
-                Расход
-              </label>
-              <input
-                id="expense"
-                type="number"
-                min="0"
-                value={expenseInput}
-                onChange={(e) => setExpenseInput(e.target.value)}
-                className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
-                placeholder="Например, 1200"
-              />
+            <div>
+              <p className="text-xs text-neutral-600">Debit</p>
+              <p className="text-2xl font-semibold text-neutral-900">
+                {totals.debitTotal.toLocaleString('ru-RU', {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}{' '}
+                ₽
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-neutral-600">Credit</p>
+              <p className="text-2xl font-semibold text-neutral-900">
+                {totals.creditTotal.toLocaleString('ru-RU', {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}{' '}
+                ₽
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-neutral-600">Cash</p>
+              <p className="text-2xl font-semibold text-neutral-900">
+                {totals.cashTotal.toLocaleString('ru-RU', {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}{' '}
+                ₽
+              </p>
             </div>
           </div>
-
-          {error && (
-            <div className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>
-          )}
-
-          <button
-            onClick={handleSubmit}
-            disabled={loading}
-            className="mt-4 w-full rounded-lg bg-neutral-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:bg-neutral-400"
-          >
-            {loading ? 'Сохраняем...' : 'Ввод'}
-          </button>
         </section>
 
+        {/* Accounts list */}
         <section className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-neutral-900">Ваши транзакции</h2>
-            {listLoading && <span className="text-sm text-neutral-500">Обновление...</span>}
-          </div>
-
-          {transactions.length === 0 ? (
-            <p className="mt-4 text-sm text-neutral-600">Пока нет данных. Добавьте первую запись.</p>
+          <h2 className="mb-4 text-lg font-semibold text-neutral-900">Счета</h2>
+          {accounts.length === 0 ? (
+            <p className="text-sm text-neutral-600">Нет счетов. Создайте счёт в настройках.</p>
           ) : (
-            <div className="mt-4 space-y-3">
-              {transactions.map((item, index) => (
-                <div
-                  key={`${item.type}-${index}-${item.amount}`}
-                  className="flex items-center justify-between rounded-lg border border-neutral-200 px-4 py-3"
-                >
-                  <div className="flex items-center gap-3">
-                    <span
-                      className={`flex h-9 w-9 items-center justify-center rounded-full text-sm font-semibold ${
-                        item.type === 'income'
-                          ? 'bg-emerald-100 text-emerald-700'
-                          : 'bg-red-100 text-red-700'
-                      }`}
-                    >
-                      {item.type === 'income' ? '+' : '-'}
-                    </span>
-                    <div>
-                      <p className="text-sm font-medium text-neutral-900">
-                        {item.type === 'income' ? 'Доход' : 'Расход'}
+            <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+              {accounts.map((account) => {
+                const accBalance = accountBalances.get(account.id);
+                if (!accBalance) return null;
+
+                const statusColors = {
+                  normal: 'border-neutral-200',
+                  orange: 'border-orange-400 bg-orange-50',
+                  red: 'border-red-500 bg-red-50',
+                };
+
+                return (
+                  <div
+                    key={account.id}
+                    className={`rounded-lg border-2 px-4 py-3 ${statusColors[accBalance.status]}`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="font-semibold text-neutral-900">{account.name}</p>
+                        <p className="text-xs uppercase text-neutral-500">{account.kind}</p>
+                      </div>
+                      {(accBalance.status === 'orange' || accBalance.status === 'red') && (
+                        <span
+                          className={`text-xs font-semibold ${
+                            accBalance.status === 'red' ? 'text-red-700' : 'text-orange-700'
+                          }`}
+                        >
+                          {accBalance.status === 'red' ? '🔴' : '🟧'}
+                        </span>
+                      )}
+                    </div>
+                    <div className="mt-2">
+                      <p className="text-lg font-semibold text-neutral-900">
+                        {accBalance.balance.toLocaleString('ru-RU', {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}{' '}
+                        ₽
                       </p>
-                      <p className="text-xs text-neutral-600">Сумма: {item.amount} ₽</p>
+                      {account.kind === 'credit' && accBalance.creditUsed !== undefined && (
+                        <p className="mt-1 text-xs text-neutral-600">
+                          Использовано кредита: {accBalance.creditUsed.toFixed(2)} из{' '}
+                          {account.credit_limit?.toFixed(2) || 0} ₽
+                        </p>
+                      )}
                     </div>
                   </div>
-                  <p className="text-base font-semibold text-neutral-900">
-                    {item.type === 'income' ? '+' : '-'}
-                    {item.amount.toLocaleString('ru-RU')}
-                  </p>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
+        </section>
+
+        {/* Operations form */}
+        <section className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">
+          <h2 className="mb-4 text-lg font-semibold text-neutral-900">Операции</h2>
+
+          <div className="grid gap-6 md:grid-cols-3">
+            {/* Income */}
+            <div className="space-y-3 rounded-lg border border-neutral-200 p-4">
+              <h3 className="text-sm font-semibold text-neutral-900">Income</h3>
+              <div className="space-y-2">
+                <div>
+                  <label className="block text-xs font-medium text-neutral-700">Сумма</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={amountIncome}
+                    onChange={(e) => setAmountIncome(e.target.value)}
+                    className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                    placeholder="0.00"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-neutral-700">Куда</label>
+                  <select
+                    value={accountIncome}
+                    onChange={(e) => setAccountIncome(e.target.value)}
+                    className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                  >
+                    <option value="">Выберите счёт</option>
+                    {accounts.map((acc) => (
+                      <option key={acc.id} value={acc.id}>
+                        {acc.name} ({acc.kind})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-neutral-700">
+                    Категория (опционально)
+                  </label>
+                  <select
+                    value={categoryIncome}
+                    onChange={(e) => setCategoryIncome(e.target.value)}
+                    className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                  >
+                    <option value="">Без категории</option>
+                    {incomeCategories.map((cat) => (
+                      <option key={cat.id} value={cat.id}>
+                        {cat.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-neutral-700">
+                    Комментарий (опционально)
+                  </label>
+                  <input
+                    type="text"
+                    value={commentIncome}
+                    onChange={(e) => setCommentIncome(e.target.value)}
+                    className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                    placeholder="Комментарий"
+                  />
+                </div>
+                <button
+                  onClick={handleIncome}
+                  disabled={submittingIncome}
+                  className="w-full rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-neutral-400"
+                >
+                  {submittingIncome ? 'Сохранение...' : 'Ввод Income'}
+                </button>
+              </div>
+            </div>
+
+            {/* Expense */}
+            <div className="space-y-3 rounded-lg border border-neutral-200 p-4">
+              <h3 className="text-sm font-semibold text-neutral-900">Expense</h3>
+              <div className="space-y-2">
+                <div>
+                  <label className="block text-xs font-medium text-neutral-700">Сумма</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={amountExpense}
+                    onChange={(e) => setAmountExpense(e.target.value)}
+                    className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                    placeholder="0.00"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-neutral-700">Откуда</label>
+                  <select
+                    value={accountExpense}
+                    onChange={(e) => setAccountExpense(e.target.value)}
+                    className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                  >
+                    <option value="">Выберите счёт</option>
+                    {accounts.map((acc) => (
+                      <option key={acc.id} value={acc.id}>
+                        {acc.name} ({acc.kind})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-neutral-700">
+                    Категория (опционально)
+                  </label>
+                  <select
+                    value={categoryExpense}
+                    onChange={(e) => setCategoryExpense(e.target.value)}
+                    className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                  >
+                    <option value="">Без категории</option>
+                    {expenseCategories.map((cat) => (
+                      <option key={cat.id} value={cat.id}>
+                        {cat.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-neutral-700">
+                    Комментарий (опционально)
+                  </label>
+                  <input
+                    type="text"
+                    value={commentExpense}
+                    onChange={(e) => setCommentExpense(e.target.value)}
+                    className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                    placeholder="Комментарий"
+                  />
+                </div>
+                <button
+                  onClick={handleExpense}
+                  disabled={submittingExpense}
+                  className="w-full rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-neutral-400"
+                >
+                  {submittingExpense ? 'Сохранение...' : 'Ввод Expense'}
+                </button>
+              </div>
+            </div>
+
+            {/* Transfer */}
+            <div className="space-y-3 rounded-lg border border-neutral-200 p-4">
+              <h3 className="text-sm font-semibold text-neutral-900">Transfer</h3>
+              <div className="space-y-2">
+                <div>
+                  <label className="block text-xs font-medium text-neutral-700">Сумма</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={amountTransfer}
+                    onChange={(e) => setAmountTransfer(e.target.value)}
+                    className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                    placeholder="0.00"
+                  />
+                </div>
+                <div>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={isCreditRepayment}
+                      onChange={(e) => setIsCreditRepayment(e.target.checked)}
+                      className="h-4 w-4"
+                    />
+                    <span className="text-xs font-medium text-neutral-700">Погашение кредита</span>
+                  </label>
+                </div>
+                {!isCreditRepayment ? (
+                  <>
+                    <div>
+                      <label className="block text-xs font-medium text-neutral-700">Откуда</label>
+                      <select
+                        value={fromAccountTransfer}
+                        onChange={(e) => setFromAccountTransfer(e.target.value)}
+                        className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                      >
+                        <option value="">Выберите счёт</option>
+                        {accounts.map((acc) => (
+                          <option key={acc.id} value={acc.id}>
+                            {acc.name} ({acc.kind})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-neutral-700">Куда</label>
+                      <select
+                        value={toAccountTransfer}
+                        onChange={(e) => setToAccountTransfer(e.target.value)}
+                        className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                      >
+                        <option value="">Выберите счёт</option>
+                        {accounts.map((acc) => (
+                          <option key={acc.id} value={acc.id}>
+                            {acc.name} ({acc.kind})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div>
+                      <label className="block text-xs font-medium text-neutral-700">Куда (кредитка)</label>
+                      <select
+                        value={toAccountTransfer}
+                        onChange={(e) => setToAccountTransfer(e.target.value)}
+                        className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                      >
+                        <option value="">Выберите кредитный счёт</option>
+                        {creditAccounts.map((acc) => (
+                          <option key={acc.id} value={acc.id}>
+                            {acc.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    {fromAccountTransfer && (
+                      <div>
+                        <label className="block text-xs font-medium text-neutral-700">Откуда</label>
+                        <input
+                          type="text"
+                          value={accountsById.get(fromAccountTransfer)?.name || ''}
+                          disabled
+                          className="mt-1 w-full rounded-lg border border-neutral-300 bg-neutral-100 px-3 py-2 text-sm"
+                        />
+                        <p className="mt-1 text-xs text-neutral-500">
+                          Автоматически выбран привязанный дебетовый счёт
+                        </p>
+                      </div>
+                    )}
+                  </>
+                )}
+                <div>
+                  <label className="block text-xs font-medium text-neutral-700">
+                    Комментарий (опционально)
+                  </label>
+                  <input
+                    type="text"
+                    value={commentTransfer}
+                    onChange={(e) => setCommentTransfer(e.target.value)}
+                    className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                    placeholder="Комментарий"
+                  />
+                </div>
+                <button
+                  onClick={handleTransfer}
+                  disabled={submittingTransfer}
+                  className="w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-neutral-400"
+                >
+                  {submittingTransfer ? 'Сохранение...' : 'Ввод Transfer'}
+                </button>
+              </div>
+            </div>
+          </div>
         </section>
       </div>
     </div>
