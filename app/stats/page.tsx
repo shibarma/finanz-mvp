@@ -223,6 +223,140 @@ export default function StatsPage() {
     };
   }, [transactions, dateFrom, dateTo]);
 
+  // Вычисляем балансы по дням для всех счетов
+  const allAccountsDailyBalances = useMemo(() => {
+    if (!dateFrom || !dateTo || accounts.length === 0) return new Map<string, Map<string, number>>();
+
+    const from = new Date(dateFrom);
+    const to = new Date(dateTo);
+    to.setHours(23, 59, 59, 999);
+
+    // Создаём массив всех дней в периоде
+    const days: string[] = [];
+    const currentDay = new Date(from);
+    while (currentDay <= to) {
+      days.push(currentDay.toISOString().split('T')[0]);
+      currentDay.setDate(currentDay.getDate() + 1);
+    }
+
+    // Для каждого счёта вычисляем баланс по дням
+    const balancesByAccount = new Map<string, Map<string, number>>();
+
+    accounts.forEach((account) => {
+      const accountTransactions = transactions.filter((tx) => tx.account_id === account.id);
+
+      // Вычисляем баланс на начало периода
+      let balanceAtPeriodStart = account.starting_balance;
+      accountTransactions.forEach((tx) => {
+        const txDate = new Date(tx.created_at);
+        if (txDate < from) {
+          if (tx.direction === 'in') {
+            balanceAtPeriodStart += tx.amount;
+          } else {
+            balanceAtPeriodStart -= tx.amount;
+          }
+        }
+      });
+
+      // Группируем транзакции в периоде по дням
+      const dailyDeltas = new Map<string, number>();
+      accountTransactions.forEach((tx) => {
+        const txDate = new Date(tx.created_at);
+        if (txDate >= from && txDate <= to) {
+          const dayKey = txDate.toISOString().split('T')[0];
+          const current = dailyDeltas.get(dayKey) || 0;
+          if (tx.direction === 'in') {
+            dailyDeltas.set(dayKey, current + tx.amount);
+          } else {
+            dailyDeltas.set(dayKey, current - tx.amount);
+          }
+        }
+      });
+
+      // Вычисляем баланс для каждого дня
+      const dailyBalances = new Map<string, number>();
+      let cumulativeBalance = balanceAtPeriodStart;
+      days.forEach((day) => {
+        const delta = dailyDeltas.get(day) || 0;
+        cumulativeBalance += delta;
+        dailyBalances.set(day, cumulativeBalance);
+      });
+
+      balancesByAccount.set(account.id, dailyBalances);
+    });
+
+    return balancesByAccount;
+  }, [accounts, transactions, dateFrom, dateTo]);
+
+  // Агрегатные графики: Все счета, Debit, Credit, Cash
+  const aggregatedCharts = useMemo(() => {
+    if (!dateFrom || !dateTo || accounts.length === 0) {
+      return {
+        all: [],
+        debit: [],
+        credit: [],
+        cash: [],
+      };
+    }
+
+    const from = new Date(dateFrom);
+    const to = new Date(dateTo);
+    to.setHours(23, 59, 59, 999);
+
+    // Создаём массив всех дней в периоде
+    const days: string[] = [];
+    const currentDay = new Date(from);
+    while (currentDay <= to) {
+      days.push(currentDay.toISOString().split('T')[0]);
+      currentDay.setDate(currentDay.getDate() + 1);
+    }
+
+    // Инициализируем массивы для каждого типа
+    const allData: Array<{ date: string; value: number }> = [];
+    const debitData: Array<{ date: string; value: number }> = [];
+    const creditData: Array<{ date: string; value: number }> = [];
+    const cashData: Array<{ date: string; value: number }> = [];
+
+    days.forEach((day) => {
+      let totalAll = 0;
+      let totalDebit = 0;
+      let totalCredit = 0;
+      let totalCash = 0;
+
+      accounts.forEach((account) => {
+        const dailyBalances = allAccountsDailyBalances.get(account.id);
+        const balance = dailyBalances?.get(day) || 0;
+
+        totalAll += balance;
+
+        if (account.kind === 'debit') {
+          totalDebit += balance;
+        } else if (account.kind === 'credit') {
+          totalCredit += balance;
+        } else if (account.kind === 'cash') {
+          totalCash += balance;
+        }
+      });
+
+      const dateLabel = new Date(day).toLocaleDateString('ru-RU', {
+        day: '2-digit',
+        month: '2-digit',
+      });
+
+      allData.push({ date: dateLabel, value: totalAll });
+      debitData.push({ date: dateLabel, value: totalDebit });
+      creditData.push({ date: dateLabel, value: totalCredit });
+      cashData.push({ date: dateLabel, value: totalCash });
+    });
+
+    return {
+      all: allData,
+      debit: debitData,
+      credit: creditData,
+      cash: cashData,
+    };
+  }, [allAccountsDailyBalances, accounts, dateFrom, dateTo]);
+
   // График баланса по дням для выбранного счёта
   const accountBalanceChart = useMemo(() => {
     if (!selectedAccountId || !dateFrom || !dateTo) return [];
@@ -234,41 +368,6 @@ export default function StatsPage() {
     const to = new Date(dateTo);
     to.setHours(23, 59, 59, 999);
 
-    // Собираем все транзакции для этого счёта
-    const accountTransactions = transactions.filter(
-      (tx) => tx.account_id === selectedAccountId,
-    );
-
-    // Вычисляем баланс на начало периода (starting_balance + все транзакции до начала периода)
-    let balanceAtPeriodStart = account.starting_balance;
-    accountTransactions.forEach((tx) => {
-      const txDate = new Date(tx.created_at);
-      if (txDate < from) {
-        if (tx.direction === 'in') {
-          balanceAtPeriodStart += tx.amount;
-        } else {
-          balanceAtPeriodStart -= tx.amount;
-        }
-      }
-    });
-
-    // Группируем транзакции в периоде по дням
-    const dailyDeltas = new Map<string, number>();
-
-    accountTransactions.forEach((tx) => {
-      const txDate = new Date(tx.created_at);
-      if (txDate >= from && txDate <= to) {
-        const dayKey = txDate.toISOString().split('T')[0];
-
-        const current = dailyDeltas.get(dayKey) || 0;
-        if (tx.direction === 'in') {
-          dailyDeltas.set(dayKey, current + tx.amount);
-        } else {
-          dailyDeltas.set(dayKey, current - tx.amount);
-        }
-      }
-    });
-
     // Создаём массив всех дней в периоде
     const days: string[] = [];
     const currentDay = new Date(from);
@@ -277,20 +376,20 @@ export default function StatsPage() {
       currentDay.setDate(currentDay.getDate() + 1);
     }
 
-    // Вычисляем баланс для каждого дня
-    let cumulativeBalance = balanceAtPeriodStart;
-    const chartData = days.map((day) => {
-      const delta = dailyDeltas.get(day) || 0;
-      cumulativeBalance += delta;
+    // Используем уже вычисленные балансы
+    const dailyBalances = allAccountsDailyBalances.get(selectedAccountId);
+    if (!dailyBalances) return [];
 
+    const chartData = days.map((day) => {
+      const balance = dailyBalances.get(day) || 0;
       return {
         date: new Date(day).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' }),
-        balance: cumulativeBalance,
+        balance,
       };
     });
 
     return chartData;
-  }, [selectedAccountId, transactions, accounts, dateFrom, dateTo]);
+  }, [selectedAccountId, allAccountsDailyBalances, dateFrom, dateTo]);
 
   // Расходы по категориям
   const expensesByCategory = useMemo(() => {
@@ -471,6 +570,141 @@ export default function StatsPage() {
               </p>
             </div>
           </div>
+        </section>
+
+        {/* Суммарные графики */}
+        <section className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">
+          <h2 className="mb-4 text-lg font-semibold text-neutral-900">Суммарные графики</h2>
+
+          {accounts.length === 0 ? (
+            <p className="text-sm text-neutral-600">Нет счетов для отображения.</p>
+          ) : (
+            <div className="grid gap-6 md:grid-cols-2">
+              {/* Все счета */}
+              <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-4">
+                <h3 className="mb-3 text-sm font-semibold text-neutral-900">Все счета</h3>
+                {aggregatedCharts.all.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={200}>
+                    <LineChart data={aggregatedCharts.all}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="date" />
+                      <YAxis
+                        tickFormatter={(value) => formatMoney(value)}
+                        domain={['auto', 'auto']}
+                        width={80}
+                      />
+                      <Tooltip
+                        formatter={(value: number) => formatMoney(value)}
+                        labelStyle={{ color: '#171717' }}
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="value"
+                        stroke="#171717"
+                        strokeWidth={2}
+                        dot={{ r: 2 }}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <p className="text-xs text-neutral-600">Нет данных</p>
+                )}
+              </div>
+
+              {/* Debit */}
+              <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-4">
+                <h3 className="mb-3 text-sm font-semibold text-neutral-900">Debit</h3>
+                {aggregatedCharts.debit.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={200}>
+                    <LineChart data={aggregatedCharts.debit}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="date" />
+                      <YAxis
+                        tickFormatter={(value) => formatMoney(value)}
+                        domain={['auto', 'auto']}
+                        width={80}
+                      />
+                      <Tooltip
+                        formatter={(value: number) => formatMoney(value)}
+                        labelStyle={{ color: '#171717' }}
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="value"
+                        stroke="#2563eb"
+                        strokeWidth={2}
+                        dot={{ r: 2 }}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <p className="text-xs text-neutral-600">Нет данных</p>
+                )}
+              </div>
+
+              {/* Credit */}
+              <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-4">
+                <h3 className="mb-3 text-sm font-semibold text-neutral-900">Credit</h3>
+                {aggregatedCharts.credit.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={200}>
+                    <LineChart data={aggregatedCharts.credit}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="date" />
+                      <YAxis
+                        tickFormatter={(value) => formatMoney(value)}
+                        domain={['auto', 'auto']}
+                        width={80}
+                      />
+                      <Tooltip
+                        formatter={(value: number) => formatMoney(value)}
+                        labelStyle={{ color: '#171717' }}
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="value"
+                        stroke="#dc2626"
+                        strokeWidth={2}
+                        dot={{ r: 2 }}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <p className="text-xs text-neutral-600">Нет данных</p>
+                )}
+              </div>
+
+              {/* Cash */}
+              <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-4">
+                <h3 className="mb-3 text-sm font-semibold text-neutral-900">Cash</h3>
+                {aggregatedCharts.cash.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={200}>
+                    <LineChart data={aggregatedCharts.cash}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="date" />
+                      <YAxis
+                        tickFormatter={(value) => formatMoney(value)}
+                        domain={['auto', 'auto']}
+                        width={80}
+                      />
+                      <Tooltip
+                        formatter={(value: number) => formatMoney(value)}
+                        labelStyle={{ color: '#171717' }}
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="value"
+                        stroke="#16a34a"
+                        strokeWidth={2}
+                        dot={{ r: 2 }}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <p className="text-xs text-neutral-600">Нет данных</p>
+                )}
+              </div>
+            </div>
+          )}
         </section>
 
         {/* График баланса по счетам */}
