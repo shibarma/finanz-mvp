@@ -16,6 +16,8 @@ interface Account {
   credit_limit: number | null;
   credit_warning_threshold: number | null;
   debit_anchor_account_id: string | null;
+  is_default_income: boolean;
+  is_default_expense: boolean;
   created_at: string;
 }
 
@@ -61,6 +63,8 @@ export default function SetupPage() {
   const [creditLimit, setCreditLimit] = useState('10000');
   const [creditWarningThreshold, setCreditWarningThreshold] = useState('100');
   const [debitAnchorAccountId, setDebitAnchorAccountId] = useState<string>('');
+  const [isDefaultIncome, setIsDefaultIncome] = useState(false);
+  const [isDefaultExpense, setIsDefaultExpense] = useState(false);
   const [accountSubmitting, setAccountSubmitting] = useState(false);
   const [accountFormError, setAccountFormError] = useState<string | null>(null);
 
@@ -75,6 +79,8 @@ export default function SetupPage() {
   const [editSubmitting, setEditSubmitting] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [defaultUpdating, setDefaultUpdating] = useState<Set<string>>(new Set());
+  const [defaultError, setDefaultError] = useState<string | null>(null);
 
   // Форма категорий
   const [categoryKind, setCategoryKind] = useState<CategoryKind>('income');
@@ -116,7 +122,7 @@ export default function SetupPage() {
     const { data, error } = await supabase
       .from('accounts')
       .select(
-        'id, user_id, name, kind, starting_balance, warning_threshold, credit_limit, credit_warning_threshold, debit_anchor_account_id, created_at',
+        'id, user_id, name, kind, starting_balance, warning_threshold, credit_limit, credit_warning_threshold, debit_anchor_account_id, is_default_income, is_default_expense, created_at',
       )
       .order('created_at', { ascending: true });
 
@@ -147,6 +153,77 @@ export default function SetupPage() {
     }
 
     setCategories((data || []) as Category[]);
+  };
+
+  const setDefault = async (kind: 'income' | 'expense', accountId: string, value: boolean) => {
+    if (!userId) return;
+
+    const fieldName = kind === 'income' ? 'is_default_income' : 'is_default_expense';
+    const updateKey = `${accountId}-${kind}`;
+
+    setDefaultError(null);
+    setDefaultUpdating((prev) => new Set(prev).add(updateKey));
+
+    try {
+      if (value) {
+        // Сначала сбросить флаг у всех счетов пользователя
+        const { error: resetError } = await supabase
+          .from('accounts')
+          .update({ [fieldName]: false })
+          .eq('user_id', userId);
+
+        if (resetError) {
+          setDefaultError(resetError.message);
+          setDefaultUpdating((prev) => {
+            const next = new Set(prev);
+            next.delete(updateKey);
+            return next;
+          });
+          return;
+        }
+
+        // Затем установить true только выбранному счёту
+        const { error: setError } = await supabase
+          .from('accounts')
+          .update({ [fieldName]: true })
+          .eq('id', accountId);
+
+        if (setError) {
+          setDefaultError(setError.message);
+          setDefaultUpdating((prev) => {
+            const next = new Set(prev);
+            next.delete(updateKey);
+            return next;
+          });
+          return;
+        }
+      } else {
+        // Просто установить false для выбранного счёта
+        const { error: setError } = await supabase
+          .from('accounts')
+          .update({ [fieldName]: false })
+          .eq('id', accountId);
+
+        if (setError) {
+          setDefaultError(setError.message);
+          setDefaultUpdating((prev) => {
+            const next = new Set(prev);
+            next.delete(updateKey);
+            return next;
+          });
+          return;
+        }
+      }
+
+      // Обновить локальное состояние
+      await loadAccounts();
+    } finally {
+      setDefaultUpdating((prev) => {
+        const next = new Set(prev);
+        next.delete(updateKey);
+        return next;
+      });
+    }
   };
 
   const handleCreateAccount = async (e: FormEvent) => {
@@ -220,23 +297,40 @@ export default function SetupPage() {
 
     setAccountSubmitting(true);
 
-    const { error } = await supabase.from('accounts').insert({
-      name: accountName.trim(),
-      kind: accountKind,
-      starting_balance: startingBalanceNum,
-      warning_threshold: accountKind === 'credit' ? 0 : warningThresholdNum,
-      credit_limit: accountKind === 'credit' ? creditLimitNum : null,
-      credit_warning_threshold: accountKind === 'credit' ? creditWarningNum : null,
-      debit_anchor_account_id: accountKind === 'credit' ? debitAnchorId : null,
-      user_id: userId,
-    });
-
-    setAccountSubmitting(false);
+    const { data: newAccount, error } = await supabase
+      .from('accounts')
+      .insert({
+        name: accountName.trim(),
+        kind: accountKind,
+        starting_balance: startingBalanceNum,
+        warning_threshold: accountKind === 'credit' ? 0 : warningThresholdNum,
+        credit_limit: accountKind === 'credit' ? creditLimitNum : null,
+        credit_warning_threshold: accountKind === 'credit' ? creditWarningNum : null,
+        debit_anchor_account_id: accountKind === 'credit' ? debitAnchorId : null,
+        is_default_income: false,
+        is_default_expense: false,
+        user_id: userId,
+      })
+      .select()
+      .single();
 
     if (error) {
+      setAccountSubmitting(false);
       setAccountFormError(error.message);
       return;
     }
+
+    // Если нужно установить default флаги, делаем это после создания
+    if (newAccount) {
+      if (isDefaultIncome) {
+        await setDefault('income', newAccount.id, true);
+      }
+      if (isDefaultExpense) {
+        await setDefault('expense', newAccount.id, true);
+      }
+    }
+
+    setAccountSubmitting(false);
 
     // очистка формы
     setAccountName('');
@@ -245,6 +339,8 @@ export default function SetupPage() {
     setCreditLimit('10000');
     setCreditWarningThreshold('100');
     setDebitAnchorAccountId('');
+    setIsDefaultIncome(false);
+    setIsDefaultExpense(false);
     await loadAccounts();
   };
 
@@ -723,12 +819,44 @@ export default function SetupPage() {
                             </>
                           )}
                         </div>
+                        <div className="mt-2 space-y-1 border-t border-neutral-200 pt-2">
+                          <label className="flex items-center gap-2 text-xs">
+                            <input
+                              type="checkbox"
+                              checked={acc.is_default_income}
+                              onChange={(e) => setDefault('income', acc.id, e.target.checked)}
+                              disabled={defaultUpdating.has(`${acc.id}-income`)}
+                              className="h-3 w-3"
+                            />
+                            <span className="text-neutral-700">По умолчанию для income</span>
+                          </label>
+                          <label className="flex items-center gap-2 text-xs">
+                            <input
+                              type="checkbox"
+                              checked={acc.is_default_expense}
+                              onChange={(e) => setDefault('expense', acc.id, e.target.checked)}
+                              disabled={defaultUpdating.has(`${acc.id}-expense`)}
+                              className="h-3 w-3"
+                            />
+                            <span className="text-neutral-700">По умолчанию для expense</span>
+                          </label>
+                        </div>
                       </>
                     )}
                   </div>
                 ))
               )}
             </div>
+
+            {defaultError && (
+              <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+                {defaultError}
+              </div>
+            )}
+
+            <p className="text-xs text-neutral-500">
+              Эти счета будут автоматически выбраны на главном экране.
+            </p>
 
             <form className="mt-2 space-y-3" onSubmit={handleCreateAccount}>
               <h3 className="text-sm font-semibold text-neutral-900">Создать счёт</h3>
@@ -881,6 +1009,28 @@ export default function SetupPage() {
                   </div>
                 </div>
               )}
+
+              <div className="space-y-2 rounded-lg border border-neutral-200 bg-neutral-50 p-3">
+                <p className="text-xs font-medium text-neutral-700">Настройки по умолчанию</p>
+                <label className="flex items-center gap-2 text-xs">
+                  <input
+                    type="checkbox"
+                    checked={isDefaultIncome}
+                    onChange={(e) => setIsDefaultIncome(e.target.checked)}
+                    className="h-3 w-3"
+                  />
+                  <span className="text-neutral-700">Сделать по умолчанию для income</span>
+                </label>
+                <label className="flex items-center gap-2 text-xs">
+                  <input
+                    type="checkbox"
+                    checked={isDefaultExpense}
+                    onChange={(e) => setIsDefaultExpense(e.target.checked)}
+                    className="h-3 w-3"
+                  />
+                  <span className="text-neutral-700">Сделать по умолчанию для expense</span>
+                </label>
+              </div>
 
               {accountFormError && (
                 <div className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">
