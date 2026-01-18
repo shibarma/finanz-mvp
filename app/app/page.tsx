@@ -89,6 +89,25 @@ export default function FinanceAppPage() {
   const [operationsPage, setOperationsPage] = useState(0);
   const OPERATIONS_PER_PAGE = 20;
 
+  // Редактирование транзакций
+  const [editingOperation, setEditingOperation] = useState<{
+    id: string;
+    type: 'income' | 'expense' | 'transfer';
+    amount: number;
+    accountId?: string;
+    fromAccountId?: string;
+    toAccountId?: string;
+    categoryId?: string;
+    comment: string | null;
+  } | null>(null);
+  const [editAmount, setEditAmount] = useState('');
+  const [editAccount, setEditAccount] = useState('');
+  const [editFromAccount, setEditFromAccount] = useState('');
+  const [editToAccount, setEditToAccount] = useState('');
+  const [editCategory, setEditCategory] = useState('');
+  const [editComment, setEditComment] = useState('');
+  const [savingEdit, setSavingEdit] = useState(false);
+
   // Income form
   const [amountIncome, setAmountIncome] = useState('');
   const [accountIncome, setAccountIncome] = useState<string>('');
@@ -513,6 +532,204 @@ export default function FinanceAppPage() {
   const handleLogout = async () => {
     await supabase.auth.signOut();
     router.replace('/login');
+  };
+
+  const handleEditOperation = (op: {
+    id: string;
+    type: 'income' | 'expense' | 'transfer';
+    amount: number;
+    accountName?: string;
+    fromAccountName?: string;
+    toAccountName?: string;
+    categoryName?: string;
+    comment: string | null;
+  }) => {
+    if (op.type === 'transfer') {
+      // Найти transfer и связанные transactions
+      const transfer = transfers.find((t) => t.id === op.id);
+      if (!transfer) return;
+
+      setEditingOperation({
+        id: transfer.id,
+        type: 'transfer',
+        amount: transfer.amount,
+        fromAccountId: transfer.from_account_id,
+        toAccountId: transfer.to_account_id,
+        comment: transfer.comment,
+      });
+      setEditAmount(transfer.amount.toString());
+      setEditFromAccount(transfer.from_account_id);
+      setEditToAccount(transfer.to_account_id);
+      setEditComment(transfer.comment || '');
+    } else {
+      // Найти transaction
+      const transaction = transactions.find((t) => t.id === op.id);
+      if (!transaction) return;
+
+      setEditingOperation({
+        id: transaction.id,
+        type: transaction.kind as 'income' | 'expense',
+        amount: transaction.amount,
+        accountId: transaction.account_id,
+        categoryId: transaction.category_id || undefined,
+        comment: transaction.comment,
+      });
+      setEditAmount(transaction.amount.toString());
+      setEditAccount(transaction.account_id);
+      setEditCategory(transaction.category_id || '');
+      setEditComment(transaction.comment || '');
+    }
+  };
+
+  const handleCancelEdit = () => {
+    setEditingOperation(null);
+    setEditAmount('');
+    setEditAccount('');
+    setEditFromAccount('');
+    setEditToAccount('');
+    setEditCategory('');
+    setEditComment('');
+  };
+
+  const handleSaveEdit = async () => {
+    if (!userId || !editingOperation) return;
+
+    setError(null);
+
+    const amount = parseFloat(editAmount);
+    if (!amount || Number.isNaN(amount) || amount <= 0) {
+      setError('Введите положительную сумму.');
+      return;
+    }
+
+    setSavingEdit(true);
+
+    try {
+      if (editingOperation.type === 'transfer') {
+        // Обновляем transfer
+        const { error: transferError } = await supabase
+          .from('transfers')
+          .update({
+            amount,
+            comment: editComment.trim() || null,
+          })
+          .eq('id', editingOperation.id)
+          .eq('user_id', userId);
+
+        if (transferError) {
+          setError(transferError.message);
+          setSavingEdit(false);
+          return;
+        }
+
+        // Обновляем обе связанные transactions
+        const { error: txError } = await supabase
+          .from('transactions')
+          .update({
+            amount,
+            comment: editComment.trim() || null,
+          })
+          .eq('transfer_id', editingOperation.id)
+          .eq('user_id', userId);
+
+        if (txError) {
+          setError(txError.message);
+          setSavingEdit(false);
+          return;
+        }
+      } else {
+        // Обновляем transaction для income/expense
+        if (!editAccount) {
+          setError('Выберите счёт.');
+          setSavingEdit(false);
+          return;
+        }
+
+        const { error: txError } = await supabase
+          .from('transactions')
+          .update({
+            amount,
+            account_id: editAccount,
+            category_id: editCategory || null,
+            comment: editComment.trim() || null,
+          })
+          .eq('id', editingOperation.id)
+          .eq('user_id', userId);
+
+        if (txError) {
+          setError(txError.message);
+          setSavingEdit(false);
+          return;
+        }
+      }
+
+      // Обновляем данные
+      await Promise.all([loadTransactions(userId), loadTransfers(userId)]);
+      handleCancelEdit();
+    } catch (err: any) {
+      setError(err.message || 'Ошибка при сохранении');
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
+  const handleDeleteOperation = async (op: {
+    id: string;
+    type: 'income' | 'expense' | 'transfer';
+  }) => {
+    if (!userId) return;
+
+    if (!window.confirm('Вы уверены, что хотите удалить эту операцию?')) {
+      return;
+    }
+
+    setError(null);
+
+    try {
+      if (op.type === 'transfer') {
+        // Удаляем связанные transactions
+        const { error: txError } = await supabase
+          .from('transactions')
+          .delete()
+          .eq('transfer_id', op.id)
+          .eq('user_id', userId);
+
+        if (txError) {
+          setError(txError.message);
+          return;
+        }
+
+        // Удаляем transfer
+        const { error: transferError } = await supabase
+          .from('transfers')
+          .delete()
+          .eq('id', op.id)
+          .eq('user_id', userId);
+
+        if (transferError) {
+          setError(transferError.message);
+          return;
+        }
+      } else {
+        // Удаляем transaction
+        const { error: txError } = await supabase
+          .from('transactions')
+          .delete()
+          .eq('id', op.id)
+          .eq('user_id', userId);
+
+        if (txError) {
+          setError(txError.message);
+          return;
+        }
+      }
+
+      // Обновляем данные
+      await Promise.all([loadTransactions(userId), loadTransfers(userId)]);
+      setOperationsPage(0);
+    } catch (err: any) {
+      setError(err.message || 'Ошибка при удалении');
+    }
   };
 
   // Автовыбор счетов по умолчанию при загрузке данных
@@ -1103,24 +1320,171 @@ export default function FinanceAppPage() {
                         </p>
                       </div>
                     </div>
-                    <p
-                      className={`text-base font-semibold ${
-                        op.type === 'income'
-                          ? 'text-emerald-700'
-                          : op.type === 'expense'
-                            ? 'text-red-700'
-                            : 'text-blue-700'
-                      }`}
-                    >
-                      {op.type === 'income' ? '+' : op.type === 'expense' ? '-' : ''}
-                      {formatMoney(op.amount)}
-                    </p>
+                    <div className="flex items-center gap-2">
+                      <p
+                        className={`text-base font-semibold ${
+                          op.type === 'income'
+                            ? 'text-emerald-700'
+                            : op.type === 'expense'
+                              ? 'text-red-700'
+                              : 'text-blue-700'
+                        }`}
+                      >
+                        {op.type === 'income' ? '+' : op.type === 'expense' ? '-' : ''}
+                        {formatMoney(op.amount)}
+                      </p>
+                      <button
+                        onClick={() => handleEditOperation(op)}
+                        className="rounded-lg border border-neutral-300 px-2 py-1 text-xs font-medium text-neutral-700 transition hover:bg-neutral-100"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => handleDeleteOperation(op)}
+                        className="rounded-lg border border-red-300 px-2 py-1 text-xs font-medium text-red-700 transition hover:bg-red-50"
+                      >
+                        Delete
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
             );
           })()}
         </section>
+
+        {/* Модальное окно редактирования */}
+        {editingOperation && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+            <div className="w-full max-w-md rounded-2xl border border-neutral-200 bg-white p-6 shadow-lg">
+              <h3 className="mb-4 text-lg font-semibold text-neutral-900">
+                Редактировать {editingOperation.type === 'income' ? 'Доход' : editingOperation.type === 'expense' ? 'Расход' : 'Перевод'}
+              </h3>
+
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-xs font-medium text-neutral-700">Сумма</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={editAmount}
+                    onChange={(e) => setEditAmount(e.target.value)}
+                    className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                    placeholder="0.00"
+                  />
+                </div>
+
+                {editingOperation.type === 'transfer' ? (
+                  <>
+                    <div>
+                      <label className="block text-xs font-medium text-neutral-700">Откуда</label>
+                      <select
+                        value={editFromAccount}
+                        onChange={(e) => setEditFromAccount(e.target.value)}
+                        className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                        disabled
+                      >
+                        <option value="">Выберите счёт</option>
+                        {accounts.map((acc) => (
+                          <option key={acc.id} value={acc.id}>
+                            {acc.name} ({acc.kind})
+                          </option>
+                        ))}
+                      </select>
+                      <p className="mt-1 text-xs text-neutral-500">
+                        Счета для Transfer нельзя изменить
+                      </p>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-neutral-700">Куда</label>
+                      <select
+                        value={editToAccount}
+                        onChange={(e) => setEditToAccount(e.target.value)}
+                        className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                        disabled
+                      >
+                        <option value="">Выберите счёт</option>
+                        {accounts.map((acc) => (
+                          <option key={acc.id} value={acc.id}>
+                            {acc.name} ({acc.kind})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div>
+                      <label className="block text-xs font-medium text-neutral-700">
+                        {editingOperation.type === 'income' ? 'Куда' : 'Откуда'}
+                      </label>
+                      <select
+                        value={editAccount}
+                        onChange={(e) => setEditAccount(e.target.value)}
+                        className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                      >
+                        <option value="">Выберите счёт</option>
+                        {accounts.map((acc) => (
+                          <option key={acc.id} value={acc.id}>
+                            {acc.name} ({acc.kind})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-neutral-700">
+                        Категория (опционально)
+                      </label>
+                      <select
+                        value={editCategory}
+                        onChange={(e) => setEditCategory(e.target.value)}
+                        className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                      >
+                        <option value="">Без категории</option>
+                        {(editingOperation.type === 'income' ? incomeCategories : expenseCategories).map((cat) => (
+                          <option key={cat.id} value={cat.id}>
+                            {cat.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </>
+                )}
+
+                <div>
+                  <label className="block text-xs font-medium text-neutral-700">
+                    Комментарий (опционально)
+                  </label>
+                  <input
+                    type="text"
+                    value={editComment}
+                    onChange={(e) => setEditComment(e.target.value)}
+                    className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                    placeholder="Комментарий"
+                  />
+                </div>
+              </div>
+
+              <div className="mt-6 flex gap-3">
+                <button
+                  onClick={handleCancelEdit}
+                  disabled={savingEdit}
+                  className="flex-1 rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-800 transition hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Отмена
+                </button>
+                <button
+                  onClick={handleSaveEdit}
+                  disabled={savingEdit}
+                  className="flex-1 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-neutral-400"
+                >
+                  {savingEdit ? 'Сохранение...' : 'Сохранить'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
