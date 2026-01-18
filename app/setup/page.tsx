@@ -62,6 +62,8 @@ export default function SetupPage() {
   const [categoryEditError, setCategoryEditError] = useState<string | null>(null);
   const [categoryEditSubmitting, setCategoryEditSubmitting] = useState(false);
   const [categoryDeleteError, setCategoryDeleteError] = useState<string | null>(null);
+  const [movingCategoryId, setMovingCategoryId] = useState<string | null>(null);
+  const [moveCategoryError, setMoveCategoryError] = useState<string | null>(null);
 
   // Форма аккаунтов
   const [accountName, setAccountName] = useState('');
@@ -162,7 +164,9 @@ export default function SetupPage() {
 
     const { data, error } = await supabase
       .from('categories')
-      .select('id, user_id, kind, name, created_at, sort_order');
+      .select('id, user_id, kind, name, created_at, sort_order')
+      .order('sort_order', { ascending: true, nullsFirst: false })
+      .order('created_at', { ascending: true });
 
     setCategoriesLoading(false);
 
@@ -571,10 +575,19 @@ export default function SetupPage() {
 
     setCategorySubmitting(true);
 
+    // Вычисляем sort_order: max по этому kind + 10
+    const categoriesOfKind = categories.filter((c) => c.kind === categoryKind);
+    const maxSortOrder =
+      categoriesOfKind.length > 0
+        ? Math.max(...categoriesOfKind.map((c) => c.sort_order ?? 0))
+        : 0;
+    const newSortOrder = maxSortOrder + 10;
+
     const { error } = await supabase.from('categories').insert({
       kind: categoryKind,
       name: categoryName.trim(),
       user_id: userId,
+      sort_order: newSortOrder,
     });
 
     setCategorySubmitting(false);
@@ -659,6 +672,91 @@ export default function SetupPage() {
     }
 
     await loadCategories();
+  };
+
+  const moveCategory = async (kind: 'income' | 'expense', categoryId: string, direction: 'up' | 'down') => {
+    if (!userId) return;
+
+    setMoveCategoryError(null);
+    setMovingCategoryId(categoryId);
+
+    try {
+      // Получаем текущий отсортированный массив категорий этого kind
+      const categoriesOfKind = categories
+        .filter((c) => c.kind === kind)
+        .sort((a, b) => {
+          const aOrder = a.sort_order ?? Number.MAX_SAFE_INTEGER;
+          const bOrder = b.sort_order ?? Number.MAX_SAFE_INTEGER;
+          if (aOrder !== bOrder) return aOrder - bOrder;
+          return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+        });
+
+      // Находим индекс текущей категории
+      const currentIndex = categoriesOfKind.findIndex((c) => c.id === categoryId);
+      if (currentIndex === -1) {
+        setMoveCategoryError('Категория не найдена.');
+        setMovingCategoryId(null);
+        return;
+      }
+
+      // Определяем индекс соседа
+      const neighborIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
+      if (neighborIndex < 0 || neighborIndex >= categoriesOfKind.length) {
+        // Нет соседа - ничего не делаем
+        setMovingCategoryId(null);
+        return;
+      }
+
+      const current = categoriesOfKind[currentIndex];
+      const neighbor = categoriesOfKind[neighborIndex];
+
+      // Swap через 3 обновления
+      // 1) Устанавливаем временное значение для current
+      const { error: error1 } = await supabase
+        .from('categories')
+        .update({ sort_order: -999999 })
+        .eq('id', current.id)
+        .eq('user_id', userId);
+
+      if (error1) {
+        setMoveCategoryError(`Ошибка при перемещении: ${error1.message}`);
+        setMovingCategoryId(null);
+        return;
+      }
+
+      // 2) Устанавливаем sort_order соседа для current
+      const { error: error2 } = await supabase
+        .from('categories')
+        .update({ sort_order: neighbor.sort_order })
+        .eq('id', current.id)
+        .eq('user_id', userId);
+
+      if (error2) {
+        setMoveCategoryError(`Ошибка при перемещении: ${error2.message}`);
+        setMovingCategoryId(null);
+        return;
+      }
+
+      // 3) Устанавливаем sort_order current для соседа
+      const { error: error3 } = await supabase
+        .from('categories')
+        .update({ sort_order: current.sort_order })
+        .eq('id', neighbor.id)
+        .eq('user_id', userId);
+
+      if (error3) {
+        setMoveCategoryError(`Ошибка при перемещении: ${error3.message}`);
+        setMovingCategoryId(null);
+        return;
+      }
+
+      // Успешно - обновляем список категорий
+      await loadCategories();
+    } catch (error: any) {
+      setMoveCategoryError(`Неожиданная ошибка: ${error.message || 'Неизвестная ошибка'}`);
+    } finally {
+      setMovingCategoryId(null);
+    }
   };
 
   const handleLogout = async () => {
@@ -1332,6 +1430,12 @@ export default function SetupPage() {
               </div>
             )}
 
+            {moveCategoryError && (
+              <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+                {moveCategoryError}
+              </div>
+            )}
+
             <div className="grid gap-4 md:grid-cols-2">
               <div>
                 <h3 className="mb-2 text-sm font-semibold text-neutral-900">
@@ -1382,8 +1486,37 @@ export default function SetupPage() {
                             <div className="flex items-center gap-1">
                               <button
                                 type="button"
+                                onClick={() => moveCategory('income', cat.id, 'up')}
+                                disabled={
+                                  movingCategoryId !== null ||
+                                  categoryEditSubmitting ||
+                                  index === 0
+                                }
+                                className="text-xs text-neutral-600 hover:text-neutral-900 disabled:cursor-not-allowed disabled:opacity-30"
+                                title="Move up"
+                              >
+                                ↑
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => moveCategory('income', cat.id, 'down')}
+                                disabled={
+                                  movingCategoryId !== null ||
+                                  categoryEditSubmitting ||
+                                  index === incomeCategories.length - 1
+                                }
+                                className="text-xs text-neutral-600 hover:text-neutral-900 disabled:cursor-not-allowed disabled:opacity-30"
+                                title="Move down"
+                              >
+                                ↓
+                              </button>
+                              {movingCategoryId === cat.id && (
+                                <span className="text-xs text-neutral-500">Saving...</span>
+                              )}
+                              <button
+                                type="button"
                                 onClick={() => startEditCategory(cat)}
-                                disabled={categoryEditSubmitting}
+                                disabled={categoryEditSubmitting || movingCategoryId !== null}
                                 className="text-xs text-blue-600 hover:text-blue-800 disabled:cursor-not-allowed disabled:opacity-50"
                               >
                                 Редактировать
@@ -1391,7 +1524,7 @@ export default function SetupPage() {
                               <button
                                 type="button"
                                 onClick={() => handleDeleteCategory(cat.id)}
-                                disabled={categoryEditSubmitting}
+                                disabled={categoryEditSubmitting || movingCategoryId !== null}
                                 className="text-xs text-red-600 hover:text-red-800 disabled:cursor-not-allowed disabled:opacity-50"
                               >
                                 Удалить
@@ -1453,8 +1586,37 @@ export default function SetupPage() {
                             <div className="flex items-center gap-1">
                               <button
                                 type="button"
+                                onClick={() => moveCategory('expense', cat.id, 'up')}
+                                disabled={
+                                  movingCategoryId !== null ||
+                                  categoryEditSubmitting ||
+                                  index === 0
+                                }
+                                className="text-xs text-neutral-600 hover:text-neutral-900 disabled:cursor-not-allowed disabled:opacity-30"
+                                title="Move up"
+                              >
+                                ↑
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => moveCategory('expense', cat.id, 'down')}
+                                disabled={
+                                  movingCategoryId !== null ||
+                                  categoryEditSubmitting ||
+                                  index === expenseCategories.length - 1
+                                }
+                                className="text-xs text-neutral-600 hover:text-neutral-900 disabled:cursor-not-allowed disabled:opacity-30"
+                                title="Move down"
+                              >
+                                ↓
+                              </button>
+                              {movingCategoryId === cat.id && (
+                                <span className="text-xs text-neutral-500">Saving...</span>
+                              )}
+                              <button
+                                type="button"
                                 onClick={() => startEditCategory(cat)}
-                                disabled={categoryEditSubmitting}
+                                disabled={categoryEditSubmitting || movingCategoryId !== null}
                                 className="text-xs text-blue-600 hover:text-blue-800 disabled:cursor-not-allowed disabled:opacity-50"
                               >
                                 Редактировать
@@ -1462,7 +1624,7 @@ export default function SetupPage() {
                               <button
                                 type="button"
                                 onClick={() => handleDeleteCategory(cat.id)}
-                                disabled={categoryEditSubmitting}
+                                disabled={categoryEditSubmitting || movingCategoryId !== null}
                                 className="text-xs text-red-600 hover:text-red-800 disabled:cursor-not-allowed disabled:opacity-50"
                               >
                                 Удалить
