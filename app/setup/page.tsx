@@ -29,6 +29,7 @@ interface Category {
   kind: CategoryKind;
   name: string;
   created_at: string;
+  sort_order: number | null;
 }
 
 // Простой helper, чтобы переиспользовать в будущем
@@ -54,6 +55,13 @@ export default function SetupPage() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [categoriesLoading, setCategoriesLoading] = useState(false);
   const [categoriesError, setCategoriesError] = useState<string | null>(null);
+
+  // Редактирование категорий
+  const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
+  const [editCategoryName, setEditCategoryName] = useState('');
+  const [categoryEditError, setCategoryEditError] = useState<string | null>(null);
+  const [categoryEditSubmitting, setCategoryEditSubmitting] = useState(false);
+  const [categoryDeleteError, setCategoryDeleteError] = useState<string | null>(null);
 
   // Форма аккаунтов
   const [accountName, setAccountName] = useState('');
@@ -81,6 +89,18 @@ export default function SetupPage() {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [defaultUpdating, setDefaultUpdating] = useState<Set<string>>(new Set());
   const [defaultError, setDefaultError] = useState<string | null>(null);
+
+  // Очистка истории операций
+  const [clearingHistory, setClearingHistory] = useState(false);
+  const [clearHistoryError, setClearHistoryError] = useState<string | null>(null);
+  const [clearHistorySuccess, setClearHistorySuccess] = useState<string | null>(null);
+
+  // Очистка операций за период
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [clearingPeriod, setClearingPeriod] = useState(false);
+  const [clearPeriodError, setClearPeriodError] = useState<string | null>(null);
+  const [clearPeriodSuccess, setClearPeriodSuccess] = useState<string | null>(null);
 
   // Форма категорий
   const [categoryKind, setCategoryKind] = useState<CategoryKind>('income');
@@ -142,8 +162,7 @@ export default function SetupPage() {
 
     const { data, error } = await supabase
       .from('categories')
-      .select('id, user_id, kind, name, created_at')
-      .order('created_at', { ascending: true });
+      .select('id, user_id, kind, name, created_at, sort_order');
 
     setCategoriesLoading(false);
 
@@ -152,7 +171,23 @@ export default function SetupPage() {
       return;
     }
 
-    setCategories((data || []) as Category[]);
+    // Сортируем на клиенте: kind, sort_order asc, created_at asc
+    const sorted = (data || []).sort((a, b) => {
+      // Сначала по kind
+      if (a.kind !== b.kind) {
+        return a.kind.localeCompare(b.kind);
+      }
+      // Затем по sort_order (nulls last)
+      const aOrder = a.sort_order ?? Number.MAX_SAFE_INTEGER;
+      const bOrder = b.sort_order ?? Number.MAX_SAFE_INTEGER;
+      if (aOrder !== bOrder) {
+        return aOrder - bOrder;
+      }
+      // Наконец по created_at
+      return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+    });
+
+    setCategories(sorted as Category[]);
   };
 
   const setDefault = async (kind: 'income' | 'expense', accountId: string, value: boolean) => {
@@ -553,17 +588,245 @@ export default function SetupPage() {
     await loadCategories();
   };
 
+  const startEditCategory = (category: Category) => {
+    setEditingCategoryId(category.id);
+    setEditCategoryName(category.name);
+    setCategoryEditError(null);
+  };
+
+  const cancelEditCategory = () => {
+    setEditingCategoryId(null);
+    setEditCategoryName('');
+    setCategoryEditError(null);
+  };
+
+  const handleUpdateCategory = async () => {
+    if (!editingCategoryId || !userId) return;
+
+    setCategoryEditError(null);
+
+    if (!editCategoryName.trim()) {
+      setCategoryEditError('Название категории обязательно.');
+      return;
+    }
+
+    setCategoryEditSubmitting(true);
+
+    const { error } = await supabase
+      .from('categories')
+      .update({ name: editCategoryName.trim() })
+      .eq('id', editingCategoryId);
+
+    setCategoryEditSubmitting(false);
+
+    if (error) {
+      // Проверка на unique constraint
+      if (error.code === '23505' || error.message.includes('unique') || error.message.includes('duplicate')) {
+        setCategoryEditError('Категория с таким названием уже существует для этого типа.');
+      } else {
+        setCategoryEditError(error.message);
+      }
+      return;
+    }
+
+    cancelEditCategory();
+    await loadCategories();
+  };
+
+  const handleDeleteCategory = async (categoryId: string) => {
+    if (!window.confirm('Вы уверены, что хотите удалить эту категорию?')) {
+      return;
+    }
+
+    setCategoryDeleteError(null);
+
+    const { error } = await supabase.from('categories').delete().eq('id', categoryId);
+
+    if (error) {
+      // Проверка на внешние ключи (использование в transactions)
+      if (
+        error.code === '23503' ||
+        error.message.includes('foreign key') ||
+        error.message.includes('violates foreign key constraint')
+      ) {
+        setCategoryDeleteError(
+          'Нельзя удалить категорию: она уже используется в операциях. В v1 удаление возможно только для неиспользуемых категорий.',
+        );
+      } else {
+        setCategoryDeleteError(error.message);
+      }
+      return;
+    }
+
+    await loadCategories();
+  };
+
   const handleLogout = async () => {
     await supabase.auth.signOut();
     router.replace('/login');
   };
 
+  const handleClearHistory = async () => {
+    if (
+      !window.confirm(
+        'Вы уверены? Все доходы, расходы и переводы будут удалены. Счета и категории сохранятся. Действие нельзя отменить.',
+      )
+    ) {
+      return;
+    }
+
+    setClearHistoryError(null);
+    setClearHistorySuccess(null);
+    setClearingHistory(true);
+
+    try {
+      // Получаем текущую сессию
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !sessionData?.session?.user?.id) {
+        setClearHistoryError('Не удалось получить сессию пользователя.');
+        setClearingHistory(false);
+        return;
+      }
+
+      const userId = sessionData.session.user.id;
+
+      // Удаляем транзакции
+      const { error: transactionsError } = await supabase
+        .from('transactions')
+        .delete()
+        .eq('user_id', userId);
+
+      if (transactionsError) {
+        setClearHistoryError(`Ошибка при удалении транзакций: ${transactionsError.message}`);
+        setClearingHistory(false);
+        return;
+      }
+
+      // Удаляем переводы
+      const { error: transfersError } = await supabase
+        .from('transfers')
+        .delete()
+        .eq('user_id', userId);
+
+      if (transfersError) {
+        setClearHistoryError(`Ошибка при удалении переводов: ${transfersError.message}`);
+        setClearingHistory(false);
+        return;
+      }
+
+      // Успех
+      setClearHistorySuccess('Готово: история очищена');
+      setClearingHistory(false);
+    } catch (error: any) {
+      setClearHistoryError(`Неожиданная ошибка: ${error.message || 'Неизвестная ошибка'}`);
+      setClearingHistory(false);
+    }
+  };
+
+  const handleClearPeriod = async () => {
+    // Валидация
+    if (!dateFrom || !dateTo) {
+      setClearPeriodError('Обе даты обязательны для заполнения.');
+      return;
+    }
+
+    if (dateFrom > dateTo) {
+      setClearPeriodError('Дата начала не может быть позже даты окончания.');
+      return;
+    }
+
+    // Подтверждение
+    if (!window.confirm(`Удалить операции с ${dateFrom} по ${dateTo}? Это нельзя отменить.`)) {
+      return;
+    }
+
+    setClearPeriodError(null);
+    setClearPeriodSuccess(null);
+    setClearingPeriod(true);
+
+    try {
+      // Получаем текущую сессию
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !sessionData?.session?.user?.id) {
+        setClearPeriodError('Не удалось получить сессию пользователя.');
+        setClearingPeriod(false);
+        return;
+      }
+
+      const userId = sessionData.session.user.id;
+
+      // Формируем безопасные ISO даты
+      const start = new Date(dateFrom + 'T00:00:00');
+      const endExclusive = new Date(dateTo + 'T00:00:00');
+      endExclusive.setDate(endExclusive.getDate() + 1);
+
+      const startISO = start.toISOString();
+      const endISO = endExclusive.toISOString();
+
+      // Удаляем транзакции в диапазоне
+      const { error: transactionsError } = await supabase
+        .from('transactions')
+        .delete()
+        .eq('user_id', userId)
+        .gte('created_at', startISO)
+        .lt('created_at', endISO);
+
+      if (transactionsError) {
+        setClearPeriodError(`Ошибка при удалении транзакций: ${transactionsError.message}`);
+        setClearingPeriod(false);
+        return;
+      }
+
+      // Удаляем переводы в диапазоне
+      const { error: transfersError } = await supabase
+        .from('transfers')
+        .delete()
+        .eq('user_id', userId)
+        .gte('created_at', startISO)
+        .lt('created_at', endISO);
+
+      if (transfersError) {
+        setClearPeriodError(`Ошибка при удалении переводов: ${transfersError.message}`);
+        setClearingPeriod(false);
+        return;
+      }
+
+      // Успех
+      setClearPeriodSuccess('Операции за период удалены');
+      setClearingPeriod(false);
+      // Очищаем поля дат
+      setDateFrom('');
+      setDateTo('');
+    } catch (error: any) {
+      setClearPeriodError(`Неожиданная ошибка: ${error.message || 'Неизвестная ошибка'}`);
+      setClearingPeriod(false);
+    }
+  };
+
   const incomeCategories = useMemo(
-    () => categories.filter((c) => c.kind === 'income'),
+    () =>
+      categories
+        .filter((c) => c.kind === 'income')
+        .sort((a, b) => {
+          // Сортируем по sort_order (nulls last), затем по created_at
+          const aOrder = a.sort_order ?? Number.MAX_SAFE_INTEGER;
+          const bOrder = b.sort_order ?? Number.MAX_SAFE_INTEGER;
+          if (aOrder !== bOrder) return aOrder - bOrder;
+          return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+        }),
     [categories],
   );
   const expenseCategories = useMemo(
-    () => categories.filter((c) => c.kind === 'expense'),
+    () =>
+      categories
+        .filter((c) => c.kind === 'expense')
+        .sort((a, b) => {
+          // Сортируем по sort_order (nulls last), затем по created_at
+          const aOrder = a.sort_order ?? Number.MAX_SAFE_INTEGER;
+          const bOrder = b.sort_order ?? Number.MAX_SAFE_INTEGER;
+          if (aOrder !== bOrder) return aOrder - bOrder;
+          return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+        }),
     [categories],
   );
 
@@ -1063,6 +1326,12 @@ export default function SetupPage() {
               </div>
             )}
 
+            {categoryDeleteError && (
+              <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+                {categoryDeleteError}
+              </div>
+            )}
+
             <div className="grid gap-4 md:grid-cols-2">
               <div>
                 <h3 className="mb-2 text-sm font-semibold text-neutral-900">
@@ -1072,9 +1341,64 @@ export default function SetupPage() {
                   {incomeCategories.length === 0 ? (
                     <p className="text-neutral-600">Нет категорий доходов.</p>
                   ) : (
-                    incomeCategories.map((cat) => (
-                      <div key={cat.id} className="rounded-md bg-neutral-50 px-2 py-1">
-                        {cat.name}
+                    incomeCategories.map((cat, index) => (
+                      <div key={cat.id} className="rounded-md border border-neutral-200 bg-neutral-50 px-2 py-1.5">
+                        {editingCategoryId === cat.id ? (
+                          <div className="space-y-2">
+                            <input
+                              type="text"
+                              value={editCategoryName}
+                              onChange={(e) => setEditCategoryName(e.target.value)}
+                              className="w-full rounded-lg border border-neutral-300 px-2 py-1 text-xs outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                              autoFocus
+                            />
+                            {categoryEditError && (
+                              <div className="rounded-lg bg-red-50 px-2 py-1 text-xs text-red-700">
+                                {categoryEditError}
+                              </div>
+                            )}
+                            <div className="flex gap-2">
+                              <button
+                                type="button"
+                                onClick={handleUpdateCategory}
+                                disabled={categoryEditSubmitting}
+                                className="flex-1 rounded-lg bg-neutral-900 px-2 py-1 text-xs font-medium text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:bg-neutral-400"
+                              >
+                                {categoryEditSubmitting ? 'Сохранение...' : 'Сохранить'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={cancelEditCategory}
+                                disabled={categoryEditSubmitting}
+                                className="flex-1 rounded-lg border border-neutral-300 px-2 py-1 text-xs font-medium text-neutral-800 transition hover:bg-neutral-100 disabled:cursor-not-allowed"
+                              >
+                                Отмена
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="flex-1 font-medium text-neutral-900">{cat.name}</span>
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => startEditCategory(cat)}
+                                disabled={categoryEditSubmitting}
+                                className="text-xs text-blue-600 hover:text-blue-800 disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                Редактировать
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteCategory(cat.id)}
+                                disabled={categoryEditSubmitting}
+                                className="text-xs text-red-600 hover:text-red-800 disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                Удалить
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     ))
                   )}
@@ -1088,9 +1412,64 @@ export default function SetupPage() {
                   {expenseCategories.length === 0 ? (
                     <p className="text-neutral-600">Нет категорий расходов.</p>
                   ) : (
-                    expenseCategories.map((cat) => (
-                      <div key={cat.id} className="rounded-md bg-neutral-50 px-2 py-1">
-                        {cat.name}
+                    expenseCategories.map((cat, index) => (
+                      <div key={cat.id} className="rounded-md border border-neutral-200 bg-neutral-50 px-2 py-1.5">
+                        {editingCategoryId === cat.id ? (
+                          <div className="space-y-2">
+                            <input
+                              type="text"
+                              value={editCategoryName}
+                              onChange={(e) => setEditCategoryName(e.target.value)}
+                              className="w-full rounded-lg border border-neutral-300 px-2 py-1 text-xs outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                              autoFocus
+                            />
+                            {categoryEditError && (
+                              <div className="rounded-lg bg-red-50 px-2 py-1 text-xs text-red-700">
+                                {categoryEditError}
+                              </div>
+                            )}
+                            <div className="flex gap-2">
+                              <button
+                                type="button"
+                                onClick={handleUpdateCategory}
+                                disabled={categoryEditSubmitting}
+                                className="flex-1 rounded-lg bg-neutral-900 px-2 py-1 text-xs font-medium text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:bg-neutral-400"
+                              >
+                                {categoryEditSubmitting ? 'Сохранение...' : 'Сохранить'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={cancelEditCategory}
+                                disabled={categoryEditSubmitting}
+                                className="flex-1 rounded-lg border border-neutral-300 px-2 py-1 text-xs font-medium text-neutral-800 transition hover:bg-neutral-100 disabled:cursor-not-allowed"
+                              >
+                                Отмена
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="flex-1 font-medium text-neutral-900">{cat.name}</span>
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => startEditCategory(cat)}
+                                disabled={categoryEditSubmitting}
+                                className="text-xs text-blue-600 hover:text-blue-800 disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                Редактировать
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteCategory(cat.id)}
+                                disabled={categoryEditSubmitting}
+                                className="text-xs text-red-600 hover:text-red-800 disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                Удалить
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     ))
                   )}
@@ -1162,6 +1541,88 @@ export default function SetupPage() {
             </form>
           </section>
         </main>
+
+        {/* Danger Zone */}
+        <section className="rounded-2xl border-2 border-red-200 bg-red-50 p-6 shadow-sm">
+          <h2 className="mb-4 text-lg font-semibold text-red-900">Опасная зона</h2>
+          <div className="space-y-3">
+            <div>
+              <p className="mb-2 text-sm text-red-800">
+                Очистить всю историю операций. Все доходы, расходы и переводы будут удалены. Счета и категории сохранятся.
+              </p>
+              {clearHistorySuccess && (
+                <div className="mb-2 rounded-lg bg-green-50 px-3 py-2 text-sm text-green-700">
+                  {clearHistorySuccess}
+                </div>
+              )}
+              {clearHistoryError && (
+                <div className="mb-2 rounded-lg bg-red-100 px-3 py-2 text-sm text-red-700">
+                  {clearHistoryError}
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={handleClearHistory}
+                disabled={clearingHistory}
+                className="rounded-lg border-2 border-red-600 bg-red-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-red-700 hover:border-red-700 disabled:cursor-not-allowed disabled:bg-red-400 disabled:border-red-400"
+              >
+                {clearingHistory ? 'Удаление...' : 'Очистить всю историю операций'}
+              </button>
+            </div>
+
+            <div className="border-t border-red-200 pt-4">
+              <p className="mb-3 text-sm text-red-800">
+                Удалит доходы/расходы/переводы в выбранном диапазоне дат. Счета и категории сохранятся.
+              </p>
+              {clearPeriodSuccess && (
+                <div className="mb-2 rounded-lg bg-green-50 px-3 py-2 text-sm text-green-700">
+                  {clearPeriodSuccess}
+                </div>
+              )}
+              {clearPeriodError && (
+                <div className="mb-2 rounded-lg bg-red-100 px-3 py-2 text-sm text-red-700">
+                  {clearPeriodError}
+                </div>
+              )}
+              <div className="mb-3 grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="block text-xs font-medium text-red-900" htmlFor="date-from">
+                    Дата начала
+                  </label>
+                  <input
+                    id="date-from"
+                    type="date"
+                    value={dateFrom}
+                    onChange={(e) => setDateFrom(e.target.value)}
+                    disabled={clearingPeriod}
+                    className="w-full rounded-lg border border-red-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-red-500 focus:ring-2 focus:ring-red-200 disabled:cursor-not-allowed disabled:bg-red-100"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="block text-xs font-medium text-red-900" htmlFor="date-to">
+                    Дата окончания
+                  </label>
+                  <input
+                    id="date-to"
+                    type="date"
+                    value={dateTo}
+                    onChange={(e) => setDateTo(e.target.value)}
+                    disabled={clearingPeriod}
+                    className="w-full rounded-lg border border-red-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-red-500 focus:ring-2 focus:ring-red-200 disabled:cursor-not-allowed disabled:bg-red-100"
+                  />
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleClearPeriod}
+                disabled={clearingPeriod}
+                className="rounded-lg border-2 border-red-600 bg-red-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-red-700 hover:border-red-700 disabled:cursor-not-allowed disabled:bg-red-400 disabled:border-red-400"
+              >
+                {clearingPeriod ? 'Удаление...' : 'Очистить за период'}
+              </button>
+            </div>
+          </div>
+        </section>
       </div>
     </div>
   );
