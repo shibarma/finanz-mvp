@@ -16,19 +16,6 @@ interface Account {
   credit_limit: number | null;
   credit_warning_threshold: number | null;
   debit_anchor_account_id: string | null;
-  is_default_income: boolean;
-  is_default_expense: boolean;
-  created_at: string;
-}
-
-interface Transfer {
-  id: string;
-  user_id: string;
-  from_account_id: string;
-  to_account_id: string;
-  amount: number;
-  is_credit_repayment: boolean;
-  comment: string | null;
   created_at: string;
 }
 
@@ -59,16 +46,6 @@ type AccountBalance = {
   creditUsed?: number;
 };
 
-// Helper для форматирования денег в EUR
-const formatMoney = (amount: number): string => {
-  return new Intl.NumberFormat('de-DE', {
-    style: 'currency',
-    currency: 'EUR',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(amount);
-};
-
 export default function FinanceAppPage() {
   const router = useRouter();
   const [sessionChecked, setSessionChecked] = useState(false);
@@ -77,17 +54,8 @@ export default function FinanceAppPage() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [transfers, setTransfers] = useState<Transfer[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  // Флаги для отслеживания ручного выбора счетов
-  const [accountIncomeManuallySet, setAccountIncomeManuallySet] = useState(false);
-  const [accountExpenseManuallySet, setAccountExpenseManuallySet] = useState(false);
-
-  // Пагинация для операций
-  const [operationsPage, setOperationsPage] = useState(0);
-  const OPERATIONS_PER_PAGE = 20;
 
   // Income form
   const [amountIncome, setAmountIncome] = useState('');
@@ -147,7 +115,6 @@ export default function FinanceAppPage() {
         loadAccounts(),
         loadCategories(),
         loadTransactions(session.user.id),
-        loadTransfers(session.user.id),
       ]);
     };
 
@@ -195,21 +162,6 @@ export default function FinanceAppPage() {
     }
 
     setTransactions((data || []) as Transaction[]);
-  };
-
-  const loadTransfers = async (uid: string) => {
-    const { data, error: fetchError } = await supabase
-      .from('transfers')
-      .select('*')
-      .eq('user_id', uid)
-      .order('created_at', { ascending: false });
-
-    if (fetchError) {
-      setError(fetchError.message);
-      return;
-    }
-
-    setTransfers((data || []) as Transfer[]);
   };
 
   // Calculate balances for each account
@@ -323,8 +275,7 @@ export default function FinanceAppPage() {
 
     setAmountIncome('');
     setCommentIncome('');
-    setOperationsPage(0);
-    await Promise.all([loadTransactions(userId), loadTransfers(userId)]);
+    await loadTransactions(userId);
   };
 
   const handleExpense = async () => {
@@ -347,7 +298,7 @@ export default function FinanceAppPage() {
     if (account && account.kind === 'cash') {
       const currentBalance = accountBalances.get(accountExpense)?.balance || 0;
       if (amount > currentBalance) {
-        setError(`Недостаточно средств на счёте "${account.name}". Доступно: ${formatMoney(currentBalance)}.`);
+        setError(`Недостаточно средств на счёте "${account.name}". Доступно: ${currentBalance.toFixed(2)}.`);
         return;
       }
     }
@@ -374,8 +325,7 @@ export default function FinanceAppPage() {
 
     setAmountExpense('');
     setCommentExpense('');
-    setOperationsPage(0);
-    await Promise.all([loadTransactions(userId), loadTransfers(userId)]);
+    await loadTransactions(userId);
   };
 
   const handleTransfer = async () => {
@@ -427,7 +377,7 @@ export default function FinanceAppPage() {
     if (fromAccount && fromAccount.kind === 'cash') {
       const currentBalance = accountBalances.get(fromAccountId)?.balance || 0;
       if (amount > currentBalance) {
-        setError(`Недостаточно средств на счёте "${fromAccount.name}". Доступно: ${formatMoney(currentBalance)}.`);
+        setError(`Недостаточно средств на счёте "${fromAccount.name}". Доступно: ${currentBalance.toFixed(2)}.`);
         return;
       }
     }
@@ -506,57 +456,13 @@ export default function FinanceAppPage() {
     setToAccountTransfer('');
     setIsCreditRepayment(false);
     setCommentTransfer('');
-    setOperationsPage(0);
-    await Promise.all([loadTransactions(userId), loadTransfers(userId)]);
+    await loadTransactions(userId);
   };
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
     router.replace('/login');
   };
-
-  // Автовыбор счетов по умолчанию при загрузке данных
-  useEffect(() => {
-    if (accounts.length === 0) return;
-
-    // Автовыбор для Income
-    if (!accountIncomeManuallySet && accountIncome === '') {
-      const defaultIncomeAccount = accounts.find((a) => a.is_default_income);
-      if (defaultIncomeAccount) {
-        setAccountIncome(defaultIncomeAccount.id);
-      } else if (accounts.length > 0) {
-        setAccountIncome(accounts[0].id);
-      }
-    } else if (accountIncome && !accounts.find((a) => a.id === accountIncome)) {
-      // Если выбранный счёт исчез, сбросить и выбрать заново
-      setAccountIncomeManuallySet(false);
-      const defaultIncomeAccount = accounts.find((a) => a.is_default_income);
-      if (defaultIncomeAccount) {
-        setAccountIncome(defaultIncomeAccount.id);
-      } else if (accounts.length > 0) {
-        setAccountIncome(accounts[0].id);
-      }
-    }
-
-    // Автовыбор для Expense
-    if (!accountExpenseManuallySet && accountExpense === '') {
-      const defaultExpenseAccount = accounts.find((a) => a.is_default_expense);
-      if (defaultExpenseAccount) {
-        setAccountExpense(defaultExpenseAccount.id);
-      } else if (accounts.length > 0) {
-        setAccountExpense(accounts[0].id);
-      }
-    } else if (accountExpense && !accounts.find((a) => a.id === accountExpense)) {
-      // Если выбранный счёт исчез, сбросить и выбрать заново
-      setAccountExpenseManuallySet(false);
-      const defaultExpenseAccount = accounts.find((a) => a.is_default_expense);
-      if (defaultExpenseAccount) {
-        setAccountExpense(defaultExpenseAccount.id);
-      } else if (accounts.length > 0) {
-        setAccountExpense(accounts[0].id);
-      }
-    }
-  }, [accounts, accountIncome, accountExpense, accountIncomeManuallySet, accountExpenseManuallySet]);
 
   // Update fromAccountTransfer when credit account is selected for repayment
   useEffect(() => {
@@ -612,7 +518,113 @@ export default function FinanceAppPage() {
           <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
         )}
 
-        {/* Operations form - moved to top */}
+        {/* Summary */}
+        <section className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">
+          <h2 className="mb-4 text-lg font-semibold text-neutral-900">Сводка</h2>
+          <div className="grid gap-4 md:grid-cols-4">
+            <div>
+              <p className="text-xs text-neutral-600">Общий баланс</p>
+              <p className="text-2xl font-semibold text-neutral-900">
+                {totals.totalBalance.toLocaleString('ru-RU', {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}{' '}
+                ₽
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-neutral-600">Debit</p>
+              <p className="text-2xl font-semibold text-neutral-900">
+                {totals.debitTotal.toLocaleString('ru-RU', {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}{' '}
+                ₽
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-neutral-600">Credit</p>
+              <p className="text-2xl font-semibold text-neutral-900">
+                {totals.creditTotal.toLocaleString('ru-RU', {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}{' '}
+                ₽
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-neutral-600">Cash</p>
+              <p className="text-2xl font-semibold text-neutral-900">
+                {totals.cashTotal.toLocaleString('ru-RU', {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}{' '}
+                ₽
+              </p>
+            </div>
+          </div>
+        </section>
+
+        {/* Accounts list */}
+        <section className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">
+          <h2 className="mb-4 text-lg font-semibold text-neutral-900">Счета</h2>
+          {accounts.length === 0 ? (
+            <p className="text-sm text-neutral-600">Нет счетов. Создайте счёт в настройках.</p>
+          ) : (
+            <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+              {accounts.map((account) => {
+                const accBalance = accountBalances.get(account.id);
+                if (!accBalance) return null;
+
+                const statusColors = {
+                  normal: 'border-neutral-200',
+                  orange: 'border-orange-400 bg-orange-50',
+                  red: 'border-red-500 bg-red-50',
+                };
+
+                return (
+                  <div
+                    key={account.id}
+                    className={`rounded-lg border-2 px-4 py-3 ${statusColors[accBalance.status]}`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="font-semibold text-neutral-900">{account.name}</p>
+                        <p className="text-xs uppercase text-neutral-500">{account.kind}</p>
+                      </div>
+                      {(accBalance.status === 'orange' || accBalance.status === 'red') && (
+                        <span
+                          className={`text-xs font-semibold ${
+                            accBalance.status === 'red' ? 'text-red-700' : 'text-orange-700'
+                          }`}
+                        >
+                          {accBalance.status === 'red' ? '🔴' : '🟧'}
+                        </span>
+                      )}
+                    </div>
+                    <div className="mt-2">
+                      <p className="text-lg font-semibold text-neutral-900">
+                        {accBalance.balance.toLocaleString('ru-RU', {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}{' '}
+                        ₽
+                      </p>
+                      {account.kind === 'credit' && accBalance.creditUsed !== undefined && (
+                        <p className="mt-1 text-xs text-neutral-600">
+                          Использовано кредита: {accBalance.creditUsed.toFixed(2)} из{' '}
+                          {account.credit_limit?.toFixed(2) || 0} ₽
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
+
+        {/* Operations form */}
         <section className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">
           <h2 className="mb-4 text-lg font-semibold text-neutral-900">Операции</h2>
 
@@ -637,10 +649,7 @@ export default function FinanceAppPage() {
                   <label className="block text-xs font-medium text-neutral-700">Куда</label>
                   <select
                     value={accountIncome}
-                    onChange={(e) => {
-                      setAccountIncome(e.target.value);
-                      setAccountIncomeManuallySet(true);
-                    }}
+                    onChange={(e) => setAccountIncome(e.target.value)}
                     className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
                   >
                     <option value="">Выберите счёт</option>
@@ -710,10 +719,7 @@ export default function FinanceAppPage() {
                   <label className="block text-xs font-medium text-neutral-700">Откуда</label>
                   <select
                     value={accountExpense}
-                    onChange={(e) => {
-                      setAccountExpense(e.target.value);
-                      setAccountExpenseManuallySet(true);
-                    }}
+                    onChange={(e) => setAccountExpense(e.target.value)}
                     className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
                   >
                     <option value="">Выберите счёт</option>
@@ -878,248 +884,6 @@ export default function FinanceAppPage() {
               </div>
             </div>
           </div>
-        </section>
-
-        {/* Summary */}
-        <section className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">
-          <h2 className="mb-4 text-lg font-semibold text-neutral-900">Сводка</h2>
-          <div className="grid gap-4 md:grid-cols-4">
-            <div>
-              <p className="text-xs text-neutral-600">Общий баланс</p>
-              <p className="text-2xl font-semibold text-neutral-900">
-                {formatMoney(totals.totalBalance)}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs text-neutral-600">Debit</p>
-              <p className="text-2xl font-semibold text-neutral-900">
-                {formatMoney(totals.debitTotal)}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs text-neutral-600">Credit</p>
-              <p className="text-2xl font-semibold text-neutral-900">
-                {formatMoney(totals.creditTotal)}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs text-neutral-600">Cash</p>
-              <p className="text-2xl font-semibold text-neutral-900">
-                {formatMoney(totals.cashTotal)}
-              </p>
-            </div>
-          </div>
-        </section>
-
-        {/* Accounts list */}
-        <section className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">
-          <h2 className="mb-4 text-lg font-semibold text-neutral-900">Счета</h2>
-          {accounts.length === 0 ? (
-            <p className="text-sm text-neutral-600">Нет счетов. Создайте счёт в настройках.</p>
-          ) : (
-            <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-              {accounts.map((account) => {
-                const accBalance = accountBalances.get(account.id);
-                if (!accBalance) return null;
-
-                const statusColors = {
-                  normal: 'border-neutral-200',
-                  orange: 'border-orange-400 bg-orange-50',
-                  red: 'border-red-500 bg-red-50',
-                };
-
-                return (
-                  <div
-                    key={account.id}
-                    className={`rounded-lg border-2 px-4 py-3 ${statusColors[accBalance.status]}`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="font-semibold text-neutral-900">{account.name}</p>
-                        <p className="text-xs uppercase text-neutral-500">{account.kind}</p>
-                      </div>
-                      {(accBalance.status === 'orange' || accBalance.status === 'red') && (
-                        <span
-                          className={`text-xs font-semibold ${
-                            accBalance.status === 'red' ? 'text-red-700' : 'text-orange-700'
-                          }`}
-                        >
-                          {accBalance.status === 'red' ? '🔴' : '🟧'}
-                        </span>
-                      )}
-                    </div>
-                    <div className="mt-2">
-                      <p className="text-lg font-semibold text-neutral-900">
-                        {formatMoney(accBalance.balance)}
-                      </p>
-                      {account.kind === 'credit' && accBalance.creditUsed !== undefined && (
-                        <p className="mt-1 text-xs text-neutral-600">
-                          Использовано кредита: {formatMoney(accBalance.creditUsed)} из{' '}
-                          {formatMoney(account.credit_limit || 0)}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </section>
-
-        {/* Last operations */}
-        <section className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-neutral-900">Последние операции</h2>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setOperationsPage((p) => Math.max(0, p - 1))}
-                disabled={operationsPage === 0}
-                className="rounded-lg border border-neutral-300 px-3 py-1 text-xs font-medium text-neutral-800 transition hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                ←
-              </button>
-              <span className="text-xs text-neutral-600">
-                Страница {operationsPage + 1}
-              </span>
-              <button
-                onClick={() => setOperationsPage((p) => p + 1)}
-                disabled={
-                  (operationsPage + 1) * OPERATIONS_PER_PAGE >=
-                  transfers.length + transactions.filter((t) => t.kind !== 'transfer').length
-                }
-                className="rounded-lg border border-neutral-300 px-3 py-1 text-xs font-medium text-neutral-800 transition hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                →
-              </button>
-            </div>
-          </div>
-
-          {(() => {
-            // Объединяем transfers и transactions для отображения
-            const allOperations: Array<{
-              id: string;
-              type: 'income' | 'expense' | 'transfer';
-              amount: number;
-              accountName?: string;
-              fromAccountName?: string;
-              toAccountName?: string;
-              categoryName?: string;
-              comment: string | null;
-              date: string;
-            }> = [];
-
-            // Добавляем transfers
-            transfers.forEach((transfer) => {
-              const fromAccount = accountsById.get(transfer.from_account_id);
-              const toAccount = accountsById.get(transfer.to_account_id);
-              allOperations.push({
-                id: transfer.id,
-                type: 'transfer',
-                amount: transfer.amount,
-                fromAccountName: fromAccount?.name,
-                toAccountName: toAccount?.name,
-                comment: transfer.comment,
-                date: transfer.created_at,
-              });
-            });
-
-            // Добавляем income/expense transactions (исключаем transfer)
-            transactions
-              .filter((t) => t.kind !== 'transfer')
-              .forEach((tx) => {
-                const account = accountsById.get(tx.account_id);
-                const category = categories.find((c) => c.id === tx.category_id);
-                allOperations.push({
-                  id: tx.id,
-                  type: tx.kind as 'income' | 'expense',
-                  amount: tx.amount,
-                  accountName: account?.name,
-                  categoryName: category?.name,
-                  comment: tx.comment,
-                  date: tx.created_at,
-                });
-              });
-
-            // Сортируем по дате (новые сначала)
-            allOperations.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-
-            // Пагинация
-            const startIndex = operationsPage * OPERATIONS_PER_PAGE;
-            const endIndex = startIndex + OPERATIONS_PER_PAGE;
-            const paginatedOperations = allOperations.slice(startIndex, endIndex);
-
-            if (paginatedOperations.length === 0) {
-              return (
-                <p className="text-sm text-neutral-600">Нет операций. Добавьте первую операцию.</p>
-              );
-            }
-
-            return (
-              <div className="space-y-2">
-                {paginatedOperations.map((op) => (
-                  <div
-                    key={op.id}
-                    className="flex items-center justify-between rounded-lg border border-neutral-200 px-4 py-3"
-                  >
-                    <div className="flex items-center gap-3">
-                      <span
-                        className={`flex h-9 w-9 items-center justify-center rounded-full text-sm font-semibold ${
-                          op.type === 'income'
-                            ? 'bg-emerald-100 text-emerald-700'
-                            : op.type === 'expense'
-                              ? 'bg-red-100 text-red-700'
-                              : 'bg-blue-100 text-blue-700'
-                        }`}
-                      >
-                        {op.type === 'income' ? '+' : op.type === 'expense' ? '-' : '⇄'}
-                      </span>
-                      <div>
-                        <p className="text-sm font-medium text-neutral-900">
-                          {op.type === 'income' && 'Доход'}
-                          {op.type === 'expense' && 'Расход'}
-                          {op.type === 'transfer' && 'Перевод'}
-                        </p>
-                        <div className="text-xs text-neutral-600">
-                          {op.type === 'transfer' ? (
-                            <>
-                              {op.fromAccountName} → {op.toAccountName}
-                            </>
-                          ) : (
-                            <>
-                              {op.accountName}
-                              {op.categoryName && ` • ${op.categoryName}`}
-                            </>
-                          )}
-                          {op.comment && ` • ${op.comment}`}
-                        </div>
-                        <p className="text-xs text-neutral-500">
-                          {new Date(op.date).toLocaleString('ru-RU', {
-                            day: '2-digit',
-                            month: '2-digit',
-                            year: 'numeric',
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })}
-                        </p>
-                      </div>
-                    </div>
-                    <p
-                      className={`text-base font-semibold ${
-                        op.type === 'income'
-                          ? 'text-emerald-700'
-                          : op.type === 'expense'
-                            ? 'text-red-700'
-                            : 'text-blue-700'
-                      }`}
-                    >
-                      {op.type === 'income' ? '+' : op.type === 'expense' ? '-' : ''}
-                      {formatMoney(op.amount)}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            );
-          })()}
         </section>
       </div>
     </div>
