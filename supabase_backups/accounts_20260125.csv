@@ -1,0 +1,18 @@
+id,user_id,name,kind,starting_balance,warning_threshold,credit_limit,credit_warning_threshold,debit_anchor_account_id,created_at,is_default_income,is_default_expense
+5a4635a4-9384-4a21-b325-cb8fd995f88e,ce818a40-0185-41bb-8c07-04bc962ce4d9,Postbank RS,debit,999.15,500,null,null,null,2026-01-18 05:50:57.562345+00,true,false
+105bf063-ca0a-4e25-a7ef-1b37eaba41c1,ce818a40-0185-41bb-8c07-04bc962ce4d9,ING-DiBa gemeinsam,debit,618.12,500,null,null,null,2026-01-18 05:51:59.627161+00,false,false
+0b6e78a5-83c8-45ea-a679-94f1c1bc3ed5,ce818a40-0185-41bb-8c07-04bc962ce4d9,Targobank gemeinsam,credit,0,0,3000,500,105bf063-ca0a-4e25-a7ef-1b37eaba41c1,2026-01-18 05:53:15.519263+00,false,true
+ec13cdce-69da-4d87-99ec-e324bac4a96c,ce818a40-0185-41bb-8c07-04bc962ce4d9,Barclays,credit,-762.59,0,7000,2000,5a4635a4-9384-4a21-b325-cb8fd995f88e,2026-01-18 05:54:47.127295+00,false,false
+8aadeb51-4038-4144-a921-ff23ec1912de,ce818a40-0185-41bb-8c07-04bc962ce4d9,PayPal RS,credit,1371.07,0,10000,100,5a4635a4-9384-4a21-b325-cb8fd995f88e,2026-01-18 05:57:12.815385+00,false,false
+6985bc7e-3ff2-4d1c-af3f-47aaea282264,ce818a40-0185-41bb-8c07-04bc962ce4d9,ING-DiBa sparen 3,debit,40.58,0,null,null,null,2026-01-18 06:00:16.781223+00,false,false
+0e21d5db-36cd-412c-865b-a81f23401a53,ce818a40-0185-41bb-8c07-04bc962ce4d9,ING-DiBa gemeinsam invest,debit,5476.49,0,null,null,null,2026-01-18 06:01:25.31463+00,false,false
+7c5a6854-6688-4f5e-a51c-791ffa14595d,ce818a40-0185-41bb-8c07-04bc962ce4d9,Cash india travel,cash,1545,200,null,null,null,2026-01-18 06:06:17.819886+00,false,false
+68d95a1c-5a2f-4e1c-95f6-599bc4f164f9,ce818a40-0185-41bb-8c07-04bc962ce4d9,Подарки на Подарки,cash,0,0,null,null,null,2026-01-19 02:07:17.48631+00,false,false
+493d6ca3-75ac-4119-bff8-2a9f85d8efdf,ce818a40-0185-41bb-8c07-04bc962ce4d9,ING-DiBa extra sparen Alisa,debit,3098.59,0,null,null,null,2026-01-18 05:59:01.625716+00,false,false
+c0a2ac44-8268-4310-8871-516713fed9b5,ce818a40-0185-41bb-8c07-04bc962ce4d9,ING-DiBa extra sparen Leo,debit,1460.05,0,null,null,null,2026-01-18 05:59:50.439961+00,false,false
+fae1add5-922c-4708-8cb4-6db831e6774e,ce818a40-0185-41bb-8c07-04bc962ce4d9,ING-DiBa Olga,debit,2780.06,500,null,null,null,2026-01-22 09:14:36.33803+00,false,false
+c928cd19-e241-49bf-8eaf-358693bb0156,ce818a40-0185-41bb-8c07-04bc962ce4d9,ING-DiBa Olga Invest,debit,1233.35,500,null,null,null,2026-01-22 09:15:21.646408+00,false,false
+e951356b-2623-416e-8034-18eb1ee6a46d,ce818a40-0185-41bb-8c07-04bc962ce4d9,ING-DiBa Olga Reserve,debit,1563.61,500,null,null,null,2026-01-22 09:16:12.983506+00,false,false
+d8a2df0e-1240-4989-91d0-b600b44234a6,ce818a40-0185-41bb-8c07-04bc962ce4d9,ING-DiBa Olga Invest,debit,2229.97,500,null,null,null,2026-01-22 09:17:24.434195+00,false,false
+3cae6bb3-b165-46a0-9ac9-6fa66c87c487,ce818a40-0185-41bb-8c07-04bc962ce4d9,Postbank Olga Geschäftskonto,debit,50,100,null,null,null,2026-01-22 09:21:53.878826+00,false,false
+7b787800-2c40-4cd3-b1ef-419cb670cab0,ce818a40-0185-41bb-8c07-04bc962ce4d9,PayPal Olga evaclub,credit,415,0,10000,100,fae1add5-922c-4708-8cb4-6db831e6774e,2026-01-22 09:23:54.809167+00,false,false

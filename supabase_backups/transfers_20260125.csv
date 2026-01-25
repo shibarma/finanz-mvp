@@ -1,0 +1,4 @@
+id,user_id,from_account_id,to_account_id,amount,is_credit_repayment,comment,created_at
+54b854e8-bf8d-4c1d-ab9a-3d452b672e41,ce818a40-0185-41bb-8c07-04bc962ce4d9,105bf063-ca0a-4e25-a7ef-1b37eaba41c1,493d6ca3-75ac-4119-bff8-2a9f85d8efdf,259,false,Детские деньги,2026-01-21 15:44:27.835253+00
+00767594-2d77-4c7b-b6e4-0611fb877dc2,ce818a40-0185-41bb-8c07-04bc962ce4d9,105bf063-ca0a-4e25-a7ef-1b37eaba41c1,c0a2ac44-8268-4310-8871-516713fed9b5,259,false,Детские деньги,2026-01-21 15:44:51.315624+00
+16642a80-340a-4d86-b5af-e7bee57d2165,ce818a40-0185-41bb-8c07-04bc962ce4d9,5a4635a4-9384-4a21-b325-cb8fd995f88e,ec13cdce-69da-4d87-99ec-e324bac4a96c,82.22,true,null,2026-01-22 04:39:22.912292+00
