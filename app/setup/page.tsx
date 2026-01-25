@@ -134,21 +134,108 @@ export default function SetupPage() {
   }, [accounts]);
 
   const loadFxRate = async () => {
+    if (!userId) return;
+
     setFxLoading(true);
     setFxError(null);
 
     try {
-      // Fetch rate from API
+      // First, fetch existing FX rate from fx_rates table
+      const { data: existingFxRate, error: fetchError } = await supabase
+        .from('fx_rates')
+        .select('rate, fetched_at')
+        .eq('user_id', userId)
+        .eq('base_currency', 'USD')
+        .eq('quote_currency', 'EUR')
+        .single();
+
+      let refreshNeeded = false;
+
+      if (fetchError || !existingFxRate) {
+        // FX rate missing - refresh needed
+        refreshNeeded = true;
+      } else {
+        // Check if fetched_at is older than 24 hours
+        const fetchedAt = new Date(existingFxRate.fetched_at);
+        const now = new Date();
+        const hoursDiff = (now.getTime() - fetchedAt.getTime()) / (1000 * 60 * 60);
+
+        if (hoursDiff >= 24) {
+          refreshNeeded = true;
+        } else {
+          // Use existing rate (still fresh)
+          setFxRate(existingFxRate.rate);
+          setFxLoading(false);
+          return;
+        }
+      }
+
+      // Check if there's at least one USD account before refreshing
+      const hasUsdAccounts = accounts.some((acc) => (acc.currency || 'EUR') === 'USD');
+      if (!hasUsdAccounts) {
+        // No USD accounts, use existing rate if available, otherwise leave null
+        if (existingFxRate) {
+          setFxRate(existingFxRate.rate);
+        }
+        setFxLoading(false);
+        return;
+      }
+
+      // Refresh needed and USD accounts exist - fetch from Frankfurter
       const response = await fetch('/api/market/fx');
       const data = await response.json();
 
       if (!data.ok) {
         setFxError(data.error || 'Failed to fetch FX rate');
+        // Use existing rate if available, otherwise leave null
+        if (existingFxRate) {
+          setFxRate(existingFxRate.rate);
+        }
         setFxLoading(false);
         return;
       }
 
-      setFxRate(data.rate);
+      // Upsert into fx_rates table
+      const now = new Date().toISOString();
+      const { error: upsertError } = await supabase
+        .from('fx_rates')
+        .upsert(
+          {
+            user_id: userId,
+            base_currency: 'USD',
+            quote_currency: 'EUR',
+            rate: data.rate,
+            fetched_at: now,
+          },
+          {
+            onConflict: 'user_id,base_currency,quote_currency',
+          }
+        );
+
+      if (upsertError) {
+        console.error('Error upserting FX rate:', upsertError);
+        setFxError('Failed to save FX rate');
+        // Use existing rate if available, otherwise use the fetched rate
+        setFxRate(existingFxRate?.rate || data.rate);
+        setFxLoading(false);
+        return;
+      }
+
+      // Re-fetch fx_rates row to ensure consistency
+      const { data: updatedFxRate, error: refetchError } = await supabase
+        .from('fx_rates')
+        .select('rate')
+        .eq('user_id', userId)
+        .eq('base_currency', 'USD')
+        .eq('quote_currency', 'EUR')
+        .single();
+
+      if (refetchError || !updatedFxRate) {
+        // Fallback to the rate we just fetched
+        setFxRate(data.rate);
+      } else {
+        setFxRate(updatedFxRate.rate);
+      }
     } catch (err) {
       setFxError(err instanceof Error ? err.message : 'Failed to fetch FX rate');
     } finally {
@@ -170,14 +257,11 @@ export default function SetupPage() {
   }, [router]);
 
   useEffect(() => {
-    // Check if we need to fetch FX rate (if there are USD accounts)
-    if (accounts.length > 0) {
-      const hasUsdAccounts = accounts.some((acc) => (acc.currency || 'EUR') === 'USD');
-      if (hasUsdAccounts) {
-        loadFxRate();
-      }
+    // Load FX rate after accounts are loaded
+    if (userId && accounts.length >= 0) {
+      loadFxRate();
     }
-  }, [accounts]);
+  }, [userId, accounts]);
 
   const loadAccounts = async () => {
     setAccountsLoading(true);
