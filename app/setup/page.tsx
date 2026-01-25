@@ -4,13 +4,15 @@ import { useEffect, useMemo, useState, FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { getSession, supabase } from '../../lib/supabaseClient';
 
-type AccountKind = 'debit' | 'credit' | 'cash';
+type AccountKind = 'debit' | 'credit' | 'cash' | 'broker';
+type AccountCurrency = 'EUR' | 'USD';
 
 interface Account {
   id: string;
   user_id: string;
   name: string;
   kind: AccountKind;
+  currency: AccountCurrency | null;
   starting_balance: number;
   warning_threshold: number;
   credit_limit: number | null;
@@ -68,6 +70,7 @@ export default function SetupPage() {
   // Форма аккаунтов
   const [accountName, setAccountName] = useState('');
   const [accountKind, setAccountKind] = useState<AccountKind>('debit');
+  const [accountCurrency, setAccountCurrency] = useState<AccountCurrency>('EUR');
   const [startingBalance, setStartingBalance] = useState('0');
   const [warningThreshold, setWarningThreshold] = useState('500');
   const [creditLimit, setCreditLimit] = useState('10000');
@@ -78,9 +81,15 @@ export default function SetupPage() {
   const [accountSubmitting, setAccountSubmitting] = useState(false);
   const [accountFormError, setAccountFormError] = useState<string | null>(null);
 
+  // FX rates
+  const [fxRate, setFxRate] = useState<number | null>(null);
+  const [fxLoading, setFxLoading] = useState(false);
+  const [fxError, setFxError] = useState<string | null>(null);
+
   // Редактирование счета
   const [editingAccountId, setEditingAccountId] = useState<string | null>(null);
   const [editAccountName, setEditAccountName] = useState('');
+  const [editAccountCurrency, setEditAccountCurrency] = useState<AccountCurrency>('EUR');
   const [editStartingBalance, setEditStartingBalance] = useState('');
   const [editWarningThreshold, setEditWarningThreshold] = useState('');
   const [editCreditLimit, setEditCreditLimit] = useState('');
@@ -124,6 +133,29 @@ export default function SetupPage() {
     return map;
   }, [accounts]);
 
+  const loadFxRate = async () => {
+    setFxLoading(true);
+    setFxError(null);
+
+    try {
+      // Fetch rate from API
+      const response = await fetch('/api/market/fx');
+      const data = await response.json();
+
+      if (!data.ok) {
+        setFxError(data.error || 'Failed to fetch FX rate');
+        setFxLoading(false);
+        return;
+      }
+
+      setFxRate(data.rate);
+    } catch (err) {
+      setFxError(err instanceof Error ? err.message : 'Failed to fetch FX rate');
+    } finally {
+      setFxLoading(false);
+    }
+  };
+
   useEffect(() => {
     const init = async () => {
       const session = await requireSessionOrRedirect(router);
@@ -137,6 +169,16 @@ export default function SetupPage() {
     init();
   }, [router]);
 
+  useEffect(() => {
+    // Check if we need to fetch FX rate (if there are USD accounts)
+    if (accounts.length > 0) {
+      const hasUsdAccounts = accounts.some((acc) => (acc.currency || 'EUR') === 'USD');
+      if (hasUsdAccounts) {
+        loadFxRate();
+      }
+    }
+  }, [accounts]);
+
   const loadAccounts = async () => {
     setAccountsLoading(true);
     setAccountsError(null);
@@ -144,7 +186,7 @@ export default function SetupPage() {
     const { data, error } = await supabase
       .from('accounts')
       .select(
-        'id, user_id, name, kind, starting_balance, warning_threshold, credit_limit, credit_warning_threshold, debit_anchor_account_id, is_default_income, is_default_expense, created_at',
+        'id, user_id, name, kind, currency, starting_balance, warning_threshold, credit_limit, credit_warning_threshold, debit_anchor_account_id, is_default_income, is_default_expense, created_at',
       )
       .order('created_at', { ascending: true });
 
@@ -276,6 +318,11 @@ export default function SetupPage() {
       return;
     }
 
+    if (!accountCurrency) {
+      setAccountFormError('Валюта обязательна.');
+      return;
+    }
+
     if (!startingBalance.trim()) {
       setAccountFormError('Начальный баланс обязателен.');
       return;
@@ -325,7 +372,7 @@ export default function SetupPage() {
       }
       debitAnchorId = debitAnchorAccountId;
     } else {
-      // Для debit и cash используем warning_threshold
+      // Для debit, cash и broker используем warning_threshold
       const warningThresholdValue = warningThreshold || '0';
       warningThresholdNum = Number(warningThresholdValue);
       if (Number.isNaN(warningThresholdNum)) {
@@ -340,7 +387,8 @@ export default function SetupPage() {
       .from('accounts')
       .insert({
         name: accountName.trim(),
-        kind: accountKind,
+        kind: accountKind.toLowerCase(),
+        currency: accountCurrency,
         starting_balance: startingBalanceNum,
         warning_threshold: accountKind === 'credit' ? 0 : warningThresholdNum,
         credit_limit: accountKind === 'credit' ? creditLimitNum : null,
@@ -373,6 +421,7 @@ export default function SetupPage() {
 
     // очистка формы
     setAccountName('');
+    setAccountCurrency('EUR');
     setStartingBalance('0');
     setWarningThreshold('500');
     setCreditLimit('10000');
@@ -381,11 +430,17 @@ export default function SetupPage() {
     setIsDefaultIncome(false);
     setIsDefaultExpense(false);
     await loadAccounts();
+    
+    // If USD account was created, ensure FX rate is loaded
+    if (accountCurrency === 'USD') {
+      await loadFxRate();
+    }
   };
 
   const startEditAccount = (account: Account) => {
     setEditingAccountId(account.id);
     setEditAccountName(account.name);
+    setEditAccountCurrency((account.currency || 'EUR') as AccountCurrency);
     setEditStartingBalance(account.starting_balance.toString());
     setEditWarningThreshold(account.warning_threshold.toString());
     setEditCreditLimit(account.credit_limit?.toString() || '');
@@ -398,6 +453,7 @@ export default function SetupPage() {
   const cancelEdit = () => {
     setEditingAccountId(null);
     setEditAccountName('');
+    setEditAccountCurrency('EUR');
     setEditStartingBalance('');
     setEditWarningThreshold('');
     setEditCreditLimit('');
@@ -416,6 +472,11 @@ export default function SetupPage() {
 
     if (!editAccountName.trim()) {
       setEditError('Название счёта обязательно.');
+      return;
+    }
+
+    if (!editAccountCurrency) {
+      setEditError('Валюта обязательна.');
       return;
     }
 
@@ -469,6 +530,7 @@ export default function SetupPage() {
 
     const updateData: any = {
       name: editAccountName.trim(),
+      currency: editAccountCurrency,
       starting_balance: startingBalanceNum,
     };
 
@@ -498,6 +560,11 @@ export default function SetupPage() {
 
     cancelEdit();
     await loadAccounts();
+    
+    // If USD account was updated, ensure FX rate is loaded
+    if (editAccountCurrency === 'USD') {
+      await loadFxRate();
+    }
   };
 
   const handleDeleteAccount = async (accountId: string) => {
@@ -1025,7 +1092,21 @@ export default function SetupPage() {
 
                           <div className="space-y-1">
                             <label className="block text-xs font-medium text-neutral-700">
-                              Начальный баланс
+                              Валюта
+                            </label>
+                            <select
+                              value={editAccountCurrency}
+                              onChange={(e) => setEditAccountCurrency(e.target.value as AccountCurrency)}
+                              className="w-full rounded-lg border border-neutral-300 px-2 py-1 text-xs outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                            >
+                              <option value="EUR">EUR</option>
+                              <option value="USD">USD</option>
+                            </select>
+                          </div>
+
+                          <div className="space-y-1">
+                            <label className="block text-xs font-medium text-neutral-700">
+                              Начальный баланс ({editAccountCurrency === 'EUR' ? '€' : '$'})
                             </label>
                             <input
                               type="number"
@@ -1038,7 +1119,7 @@ export default function SetupPage() {
                           {acc.kind !== 'credit' && (
                             <div className="space-y-1">
                               <label className="block text-xs font-medium text-neutral-700">
-                                Порог предупреждения
+                                Порог предупреждения ({editAccountCurrency === 'EUR' ? '€' : '$'})
                               </label>
                               <input
                                 type="number"
@@ -1054,7 +1135,7 @@ export default function SetupPage() {
                             <>
                               <div className="space-y-1">
                                 <label className="block text-xs font-medium text-neutral-700">
-                                  Кредитный лимит
+                                  Кредитный лимит ({editAccountCurrency === 'EUR' ? '€' : '$'})
                                 </label>
                                 <input
                                   type="number"
@@ -1067,7 +1148,7 @@ export default function SetupPage() {
 
                               <div className="space-y-1">
                                 <label className="block text-xs font-medium text-neutral-700">
-                                  Порог приближения к лимиту
+                                  Порог приближения к лимиту ({editAccountCurrency === 'EUR' ? '€' : '$'})
                                 </label>
                                 <input
                                   type="number"
@@ -1127,7 +1208,12 @@ export default function SetupPage() {
                     ) : (
                       <>
                         <div className="flex items-center justify-between">
-                          <span className="font-medium text-neutral-900">{acc.name}</span>
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium text-neutral-900">{acc.name}</span>
+                            <span className="rounded bg-blue-100 px-1.5 py-0.5 text-xs font-medium text-blue-800">
+                              {(acc.currency || 'EUR') === 'EUR' ? 'EUR' : 'USD'}
+                            </span>
+                          </div>
                           <div className="flex items-center gap-2">
                             <span className="text-xs uppercase text-neutral-500">{acc.kind}</span>
                             <button
@@ -1149,25 +1235,54 @@ export default function SetupPage() {
                         <div className="mt-1 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-neutral-600">
                           <span>
                             Стартовый баланс:{' '}
-                            <span className="font-medium">{acc.starting_balance}</span>
+                            <span className="font-medium">
+                              {(acc.currency || 'EUR') === 'EUR' ? '€' : '$'}{acc.starting_balance.toFixed(2)}
+                            </span>
+                            {(acc.currency || 'EUR') === 'USD' && fxRate && (
+                              <span className="ml-1 text-neutral-500">
+                                (≈ €{(acc.starting_balance * fxRate).toFixed(2)})
+                              </span>
+                            )}
+                            {(acc.currency || 'EUR') === 'USD' && !fxRate && !fxLoading && (
+                              <span className="ml-1 text-neutral-400">(≈ € — FX not loaded)</span>
+                            )}
                           </span>
                           {acc.kind !== 'credit' && (
                             <span>
                               Порог:{' '}
-                              <span className="font-medium">{acc.warning_threshold}</span>
+                              <span className="font-medium">
+                                {(acc.currency || 'EUR') === 'EUR' ? '€' : '$'}{acc.warning_threshold.toFixed(2)}
+                              </span>
+                              {(acc.currency || 'EUR') === 'USD' && fxRate && (
+                                <span className="ml-1 text-neutral-500">
+                                  (≈ €{(acc.warning_threshold * fxRate).toFixed(2)})
+                                </span>
+                              )}
                             </span>
                           )}
                           {acc.kind === 'credit' && (
                             <>
                               <span>
                                 Кредитный лимит:{' '}
-                                <span className="font-medium">{acc.credit_limit}</span>
+                                <span className="font-medium">
+                                  {(acc.currency || 'EUR') === 'EUR' ? '€' : '$'}{acc.credit_limit?.toFixed(2) || '—'}
+                                </span>
+                                {(acc.currency || 'EUR') === 'USD' && fxRate && acc.credit_limit && (
+                                  <span className="ml-1 text-neutral-500">
+                                    (≈ €{(acc.credit_limit * fxRate).toFixed(2)})
+                                  </span>
+                                )}
                               </span>
                               <span>
                                 Порог приближения к лимиту:{' '}
                                 <span className="font-medium">
-                                  {acc.credit_warning_threshold}
+                                  {(acc.currency || 'EUR') === 'EUR' ? '€' : '$'}{acc.credit_warning_threshold?.toFixed(2) || '—'}
                                 </span>
+                                {(acc.currency || 'EUR') === 'USD' && fxRate && acc.credit_warning_threshold && (
+                                  <span className="ml-1 text-neutral-500">
+                                    (≈ €{(acc.credit_warning_threshold * fxRate).toFixed(2)})
+                                  </span>
+                                )}
                               </span>
                               <span className="col-span-2">
                                 Привязанный дебетовый счёт:{' '}
@@ -1180,6 +1295,11 @@ export default function SetupPage() {
                             </>
                           )}
                         </div>
+                        {(acc.currency || 'EUR') === 'USD' && fxError && (
+                          <div className="mt-1 rounded bg-yellow-50 px-2 py-1 text-xs text-yellow-700">
+                            FX rate warning: {fxError}
+                          </div>
+                        )}
                         <div className="mt-2 space-y-1 border-t border-neutral-200 pt-2">
                           <label className="flex items-center gap-2 text-xs">
                             <input
@@ -1245,42 +1365,58 @@ export default function SetupPage() {
                   <select
                     id="account-kind"
                     value={accountKind}
-                    onChange={(e) => setAccountKind(e.target.value as AccountKind)}
+                    onChange={(e) => setAccountKind(e.target.value.toLowerCase() as AccountKind)}
                     className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
                   >
                     <option value="debit">debit</option>
                     <option value="credit">credit</option>
                     <option value="cash">cash</option>
+                    <option value="broker">broker</option>
                   </select>
                 </div>
 
                 <div className="space-y-1">
-                  <label
-                    className="block text-xs font-medium text-neutral-700"
-                    htmlFor="starting-balance"
-                  >
-                    Начальный баланс
+                  <label className="block text-xs font-medium text-neutral-700" htmlFor="account-currency">
+                    Валюта
                   </label>
-                  <input
-                    id="starting-balance"
-                    type="number"
-                    value={startingBalance}
-                    onChange={(e) => setStartingBalance(e.target.value)}
+                  <select
+                    id="account-currency"
+                    value={accountCurrency}
+                    onChange={(e) => setAccountCurrency(e.target.value as AccountCurrency)}
                     className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
-                  />
-                  <p className="text-xs text-neutral-500">
-                    Можно вводить отрицательные значения. Примеры: -300 = долг 300€; 0 = нет долга/остатка; +1300 = положительный остаток (например PayPal).
-                  </p>
+                  >
+                    <option value="EUR">EUR</option>
+                    <option value="USD">USD</option>
+                  </select>
                 </div>
               </div>
 
-              {accountKind !== 'credit' && (
+              <div className="space-y-1">
+                <label
+                  className="block text-xs font-medium text-neutral-700"
+                  htmlFor="starting-balance"
+                >
+                  Начальный баланс ({accountCurrency === 'EUR' ? '€' : '$'})
+                </label>
+                <input
+                  id="starting-balance"
+                  type="number"
+                  value={startingBalance}
+                  onChange={(e) => setStartingBalance(e.target.value)}
+                  className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                />
+                <p className="text-xs text-neutral-500">
+                  Можно вводить отрицательные значения. Примеры: -300 = долг {accountCurrency === 'EUR' ? '300€' : '300$'}; 0 = нет долга/остатка; +1300 = положительный остаток (например PayPal).
+                </p>
+              </div>
+
+              {(accountKind !== 'credit' && accountKind !== 'broker') && (
                 <div className="space-y-1">
                   <label
                     className="block text-xs font-medium text-neutral-700"
                     htmlFor="warning-threshold"
                   >
-                    Порог предупреждения
+                    Порог предупреждения ({accountCurrency === 'EUR' ? '€' : '$'})
                   </label>
                   <input
                     id="warning-threshold"
@@ -1290,7 +1426,28 @@ export default function SetupPage() {
                     className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
                   />
                   <p className="text-xs text-neutral-500">
-                    Оранжевое предупреждение, когда остаток становится маленьким. Пример: 500 → предупреждение при балансе ≤ 500€.
+                    Оранжевое предупреждение, когда остаток становится маленьким. Пример: 500 → предупреждение при балансе ≤ 500{accountCurrency === 'EUR' ? '€' : '$'}.
+                  </p>
+                </div>
+              )}
+
+              {accountKind === 'broker' && (
+                <div className="space-y-1">
+                  <label
+                    className="block text-xs font-medium text-neutral-700"
+                    htmlFor="warning-threshold"
+                  >
+                    Порог предупреждения ({accountCurrency === 'EUR' ? '€' : '$'})
+                  </label>
+                  <input
+                    id="warning-threshold"
+                    type="number"
+                    value={warningThreshold}
+                    onChange={(e) => setWarningThreshold(e.target.value)}
+                    className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                  />
+                  <p className="text-xs text-neutral-500">
+                    Оранжевое предупреждение, когда остаток становится маленьким. Пример: 500 → предупреждение при балансе ≤ 500{accountCurrency === 'EUR' ? '€' : '$'}.
                   </p>
                 </div>
               )}
@@ -1309,7 +1466,7 @@ export default function SetupPage() {
                         className="block text-xs font-medium text-neutral-700"
                         htmlFor="credit-limit"
                       >
-                        Кредитный лимит
+                        Кредитный лимит ({accountCurrency === 'EUR' ? '€' : '$'})
                       </label>
                       <input
                         id="credit-limit"
@@ -1327,7 +1484,7 @@ export default function SetupPage() {
                         className="block text-xs font-medium text-neutral-700"
                         htmlFor="credit-warning-threshold"
                       >
-                        Порог приближения к лимиту
+                        Порог приближения к лимиту ({accountCurrency === 'EUR' ? '€' : '$'})
                       </label>
                       <input
                         id="credit-warning-threshold"
@@ -1338,7 +1495,7 @@ export default function SetupPage() {
                         className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
                       />
                       <p className="text-xs text-neutral-500">
-                        Введите положительное число — на сколько € до лимита показать предупреждение. Пример: лимит 10000 и порог 500 → предупреждение начнётся при использовании 9500 из 10000.
+                        Введите положительное число — на сколько {accountCurrency === 'EUR' ? '€' : '$'} до лимита показать предупреждение. Пример: лимит 10000 и порог 500 → предупреждение начнётся при использовании 9500 из 10000.
                       </p>
                     </div>
                   </div>
