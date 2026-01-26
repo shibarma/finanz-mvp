@@ -685,8 +685,23 @@ export default function SetupPage() {
       return;
     }
 
-    // Проверка 3: используется ли как debit_anchor_account_id
+    // Проверка 3: для broker счетов - есть ли investment positions
     const account = accounts.find((a) => a.id === accountId);
+    if (account && account.kind === 'broker') {
+      const { count: positionsCount } = await supabase
+        .from('positions')
+        .select('*', { count: 'exact', head: true })
+        .eq('broker_account_id', accountId);
+
+      if (positionsCount && positionsCount > 0) {
+        setDeleteError(
+          'Нельзя удалить счёт: по нему есть операции. В v1 удаление возможно только для пустых счетов.',
+        );
+        return;
+      }
+    }
+
+    // Проверка 4: используется ли как debit_anchor_account_id
     if (account && account.kind === 'debit') {
       const { count: linkedCreditCount } = await supabase
         .from('accounts')
