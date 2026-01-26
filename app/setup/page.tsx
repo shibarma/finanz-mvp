@@ -34,6 +34,36 @@ interface Category {
   sort_order: number | null;
 }
 
+type InstrumentKind = 'stock' | 'etf' | 'bond' | 'crypto' | 'other';
+
+interface Instrument {
+  id: string;
+  user_id: string;
+  kind: InstrumentKind;
+  provider: string;
+  provider_symbol: string;
+  display_symbol: string;
+  name: string | null;
+  created_at: string;
+}
+
+interface Position {
+  id: string;
+  user_id: string;
+  broker_account_id: string;
+  instrument_id: string;
+  quote_currency: string;
+  quantity: number;
+  comment: string | null;
+  last_price: number;
+  last_price_at: string;
+  created_at: string;
+}
+
+interface PositionWithInstrument extends Position {
+  instrument: Instrument;
+}
+
 // Простой helper, чтобы переиспользовать в будущем
 async function requireSessionOrRedirect(router: ReturnType<typeof useRouter>) {
   const session = await getSession();
@@ -118,6 +148,24 @@ export default function SetupPage() {
   const [categoryName, setCategoryName] = useState('');
   const [categorySubmitting, setCategorySubmitting] = useState(false);
   const [categoryFormError, setCategoryFormError] = useState<string | null>(null);
+
+  // Investments/Positions
+  const [selectedBrokerAccountId, setSelectedBrokerAccountId] = useState<string>('');
+  const [positions, setPositions] = useState<PositionWithInstrument[]>([]);
+  const [positionsLoading, setPositionsLoading] = useState(false);
+  const [positionsError, setPositionsError] = useState<string | null>(null);
+  const [positionFormError, setPositionFormError] = useState<string | null>(null);
+  const [positionSubmitting, setPositionSubmitting] = useState(false);
+  const [positionKind, setPositionKind] = useState<InstrumentKind>('stock');
+  const [positionSymbol, setPositionSymbol] = useState('');
+  const [positionQuantity, setPositionQuantity] = useState('');
+  const [positionComment, setPositionComment] = useState('');
+  const [editingPositionId, setEditingPositionId] = useState<string | null>(null);
+  const [editPositionQuantity, setEditPositionQuantity] = useState('');
+  const [editPositionComment, setEditPositionComment] = useState('');
+  const [positionEditSubmitting, setPositionEditSubmitting] = useState(false);
+  const [positionEditError, setPositionEditError] = useState<string | null>(null);
+  const [positionDeleteError, setPositionDeleteError] = useState<string | null>(null);
 
   const debitAccounts = useMemo(
     () => accounts.filter((a) => a.kind === 'debit'),
@@ -1067,6 +1115,261 @@ export default function SetupPage() {
     }
   };
 
+  const brokerAccounts = useMemo(
+    () => accounts.filter((a) => a.kind === 'broker'),
+    [accounts],
+  );
+
+  const loadPositions = async () => {
+    if (!selectedBrokerAccountId || !userId) {
+      setPositions([]);
+      return;
+    }
+
+    setPositionsLoading(true);
+    setPositionsError(null);
+
+    try {
+      const { data, error } = await supabase
+        .from('positions')
+        .select(
+          'id, user_id, broker_account_id, instrument_id, quote_currency, quantity, comment, last_price, last_price_at, created_at, instruments!inner(id, user_id, kind, provider, provider_symbol, display_symbol, name, created_at)',
+        )
+        .eq('broker_account_id', selectedBrokerAccountId)
+        .eq('user_id', userId)
+        .order('created_at', { ascending: true });
+
+      setPositionsLoading(false);
+
+      if (error) {
+        setPositionsError(error.message);
+        return;
+      }
+
+      // Transform the data to PositionWithInstrument[]
+      const positionsWithInstruments: PositionWithInstrument[] = (data || []).map((p: any) => ({
+        id: p.id,
+        user_id: p.user_id,
+        broker_account_id: p.broker_account_id,
+        instrument_id: p.instrument_id,
+        quote_currency: p.quote_currency,
+        quantity: p.quantity,
+        comment: p.comment,
+        last_price: p.last_price,
+        last_price_at: p.last_price_at,
+        created_at: p.created_at,
+        instrument: Array.isArray(p.instruments) ? p.instruments[0] : p.instruments,
+      }));
+
+      setPositions(positionsWithInstruments);
+    } catch (err) {
+      setPositionsLoading(false);
+      setPositionsError(err instanceof Error ? err.message : 'Failed to load positions');
+    }
+  };
+
+  useEffect(() => {
+    loadPositions();
+  }, [selectedBrokerAccountId, userId]);
+
+  const handleCreatePosition = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!userId || !selectedBrokerAccountId) return;
+
+    setPositionFormError(null);
+
+    if (!positionSymbol.trim()) {
+      setPositionFormError('Символ обязателен.');
+      return;
+    }
+
+    const quantityNum = Number(positionQuantity);
+    if (!positionQuantity.trim() || Number.isNaN(quantityNum) || quantityNum <= 0) {
+      setPositionFormError('Количество должно быть положительным числом.');
+      return;
+    }
+
+    const brokerAccount = accounts.find((a) => a.id === selectedBrokerAccountId);
+    if (!brokerAccount || !brokerAccount.currency) {
+      setPositionFormError('Не удалось найти брокерский счёт или валюта не задана.');
+      return;
+    }
+
+    setPositionSubmitting(true);
+
+    try {
+      // Normalize symbol
+      const normalizedSymbol = positionSymbol.trim().toUpperCase();
+
+      // Find or create instrument
+      const { data: existingInstrument, error: findError } = await supabase
+        .from('instruments')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('provider', 'manual')
+        .eq('provider_symbol', normalizedSymbol)
+        .maybeSingle();
+
+      if (findError && findError.code !== 'PGRST116') {
+        setPositionSubmitting(false);
+        setPositionFormError(findError.message);
+        return;
+      }
+
+      let instrumentId: string;
+
+      if (existingInstrument) {
+        instrumentId = existingInstrument.id;
+      } else {
+        const { data: newInstrument, error: createError } = await supabase
+          .from('instruments')
+          .insert({
+            user_id: userId,
+            kind: positionKind,
+            provider: 'manual',
+            provider_symbol: normalizedSymbol,
+            display_symbol: normalizedSymbol,
+            name: null,
+          })
+          .select('id')
+          .single();
+
+        if (createError) {
+          setPositionSubmitting(false);
+          setPositionFormError(createError.message);
+          return;
+        }
+
+        if (!newInstrument) {
+          setPositionSubmitting(false);
+          setPositionFormError('Не удалось создать инструмент.');
+          return;
+        }
+
+        instrumentId = newInstrument.id;
+      }
+
+      // Check for existing position
+      const { data: existingPosition } = await supabase
+        .from('positions')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('broker_account_id', selectedBrokerAccountId)
+        .eq('instrument_id', instrumentId)
+        .maybeSingle();
+
+      if (existingPosition) {
+        setPositionSubmitting(false);
+        setPositionFormError(
+          'Такая позиция уже существует для этого брокерского счёта. В v1 дубликаты запрещены.',
+        );
+        return;
+      }
+
+      // Create position with last_price = 99
+      const now = new Date().toISOString();
+      const { error: positionError } = await supabase.from('positions').insert({
+        user_id: userId,
+        broker_account_id: selectedBrokerAccountId,
+        instrument_id: instrumentId,
+        quote_currency: brokerAccount.currency,
+        quantity: quantityNum,
+        comment: positionComment.trim() || null,
+        last_price: 99,
+        last_price_at: now,
+      });
+
+      if (positionError) {
+        setPositionSubmitting(false);
+        if (
+          positionError.code === '23505' ||
+          positionError.message.includes('unique') ||
+          positionError.message.includes('duplicate')
+        ) {
+          setPositionFormError(
+            'Такая позиция уже существует для этого брокерского счёта. В v1 дубликаты запрещены.',
+          );
+        } else {
+          setPositionFormError(positionError.message);
+        }
+        return;
+      }
+
+      // Success
+      setPositionSymbol('');
+      setPositionQuantity('');
+      setPositionComment('');
+      await loadPositions();
+      setPositionSubmitting(false);
+    } catch (err) {
+      setPositionSubmitting(false);
+      setPositionFormError(err instanceof Error ? err.message : 'Failed to create position');
+    }
+  };
+
+  const startEditPosition = (position: PositionWithInstrument) => {
+    setEditingPositionId(position.id);
+    setEditPositionQuantity(position.quantity.toString());
+    setEditPositionComment(position.comment || '');
+    setPositionEditError(null);
+  };
+
+  const cancelEditPosition = () => {
+    setEditingPositionId(null);
+    setEditPositionQuantity('');
+    setEditPositionComment('');
+    setPositionEditError(null);
+  };
+
+  const handleUpdatePosition = async () => {
+    if (!editingPositionId) return;
+
+    setPositionEditError(null);
+
+    const quantityNum = Number(editPositionQuantity);
+    if (!editPositionQuantity.trim() || Number.isNaN(quantityNum) || quantityNum <= 0) {
+      setPositionEditError('Количество должно быть положительным числом.');
+      return;
+    }
+
+    setPositionEditSubmitting(true);
+
+    const { error } = await supabase
+      .from('positions')
+      .update({
+        quantity: quantityNum,
+        comment: editPositionComment.trim() || null,
+      })
+      .eq('id', editingPositionId);
+
+    setPositionEditSubmitting(false);
+
+    if (error) {
+      setPositionEditError(error.message);
+      return;
+    }
+
+    cancelEditPosition();
+    await loadPositions();
+  };
+
+  const handleDeletePosition = async (positionId: string) => {
+    if (!window.confirm('Вы уверены, что хотите удалить эту позицию?')) {
+      return;
+    }
+
+    setPositionDeleteError(null);
+
+    const { error } = await supabase.from('positions').delete().eq('id', positionId);
+
+    if (error) {
+      setPositionDeleteError(error.message);
+      return;
+    }
+
+    await loadPositions();
+  };
+
   const incomeCategories = useMemo(
     () =>
       categories
@@ -1959,6 +2262,304 @@ export default function SetupPage() {
             </form>
           </section>
         </main>
+
+        {/* Investments/Positions block */}
+        <section className="flex flex-col gap-4 rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-neutral-900">Investments / Positions</h2>
+              {positionsLoading && <span className="text-xs text-neutral-500">Загрузка...</span>}
+            </div>
+
+            {positionsError && (
+              <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+                {positionsError}
+              </div>
+            )}
+
+            {positionDeleteError && (
+              <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+                {positionDeleteError}
+              </div>
+            )}
+
+            <div className="space-y-1">
+              <label className="block text-xs font-medium text-neutral-700">
+                Брокерский счёт (обязательно)
+              </label>
+              <select
+                value={selectedBrokerAccountId}
+                onChange={(e) => setSelectedBrokerAccountId(e.target.value)}
+                className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+              >
+                <option value="">Выберите брокерский счёт</option>
+                {brokerAccounts.map((acc) => (
+                  <option key={acc.id} value={acc.id}>
+                    {acc.name} ({(acc.currency || 'EUR') === 'EUR' ? 'EUR' : 'USD'})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {brokerAccounts.length === 0 ? (
+              <p className="text-sm text-neutral-600">
+                Создайте брокерский счёт (тип broker), чтобы добавлять позиции.
+              </p>
+            ) : selectedBrokerAccountId ? (
+              <>
+                <div className="max-h-96 space-y-2 overflow-auto rounded-lg border border-neutral-200 p-3 text-sm">
+                  {positions.length === 0 ? (
+                    <p className="text-neutral-600">Позиции отсутствуют.</p>
+                  ) : (
+                    positions.map((pos) => (
+                      <div
+                        key={pos.id}
+                        className="rounded-md border border-neutral-200 px-3 py-2"
+                      >
+                        {editingPositionId === pos.id ? (
+                          <div className="space-y-3">
+                            <div className="flex items-center justify-between">
+                              <h4 className="text-sm font-semibold text-neutral-900">
+                                Редактирование позиции
+                              </h4>
+                              <button
+                                type="button"
+                                onClick={cancelEditPosition}
+                                className="text-xs text-neutral-600 hover:text-neutral-900"
+                              >
+                                ✕
+                              </button>
+                            </div>
+
+                            <div className="space-y-2">
+                              <div className="text-xs text-neutral-600">
+                                Символ: {pos.instrument.display_symbol || pos.instrument.provider_symbol} (
+                                {pos.instrument.kind})
+                              </div>
+
+                              <div className="space-y-1">
+                                <label className="block text-xs font-medium text-neutral-700">
+                                  Количество
+                                </label>
+                                <input
+                                  type="number"
+                                  step="any"
+                                  min="0"
+                                  value={editPositionQuantity}
+                                  onChange={(e) => setEditPositionQuantity(e.target.value)}
+                                  className="w-full rounded-lg border border-neutral-300 px-2 py-1 text-xs outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                                />
+                              </div>
+
+                              <div className="space-y-1">
+                                <label className="block text-xs font-medium text-neutral-700">
+                                  Комментарий
+                                </label>
+                                <input
+                                  type="text"
+                                  value={editPositionComment}
+                                  onChange={(e) => setEditPositionComment(e.target.value)}
+                                  className="w-full rounded-lg border border-neutral-300 px-2 py-1 text-xs outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                                />
+                              </div>
+
+                              {positionEditError && (
+                                <div className="rounded-lg bg-red-50 px-2 py-1 text-xs text-red-700">
+                                  {positionEditError}
+                                </div>
+                              )}
+
+                              <div className="flex gap-2">
+                                <button
+                                  type="button"
+                                  onClick={handleUpdatePosition}
+                                  disabled={positionEditSubmitting}
+                                  className="flex-1 rounded-lg bg-neutral-900 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:bg-neutral-400"
+                                >
+                                  {positionEditSubmitting ? 'Сохранение...' : 'Сохранить'}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={cancelEditPosition}
+                                  disabled={positionEditSubmitting}
+                                  className="flex-1 rounded-lg border border-neutral-300 px-3 py-1.5 text-xs font-medium text-neutral-800 transition hover:bg-neutral-100 disabled:cursor-not-allowed"
+                                >
+                                  Отмена
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="flex items-center justify-between">
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-medium text-neutral-900">
+                                    {pos.instrument.display_symbol || pos.instrument.provider_symbol}
+                                  </span>
+                                  <span className="rounded bg-blue-100 px-1.5 py-0.5 text-xs font-medium text-blue-800">
+                                    {pos.instrument.kind}
+                                  </span>
+                                </div>
+                                <div className="mt-1 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-neutral-600">
+                                  <span>
+                                    Количество:{' '}
+                                    <span className="font-medium">{pos.quantity}</span>
+                                  </span>
+                                  <span>
+                                    Валюта:{' '}
+                                    <span className="font-medium">{pos.quote_currency}</span>
+                                  </span>
+                                  <span>
+                                    Цена:{' '}
+                                    <span className="font-medium">
+                                      {pos.quote_currency === 'EUR' ? '€' : '$'}
+                                      {pos.last_price.toFixed(2)}
+                                    </span>
+                                    {pos.quote_currency === 'USD' && fxRate && (
+                                      <span className="ml-1 text-neutral-500">
+                                        (≈ €{(pos.last_price * fxRate).toFixed(2)})
+                                      </span>
+                                    )}
+                                  </span>
+                                  <span>
+                                    Стоимость:{' '}
+                                    <span className="font-medium">
+                                      {pos.quote_currency === 'EUR' ? '€' : '$'}
+                                      {(pos.quantity * pos.last_price).toFixed(2)}
+                                    </span>
+                                    {pos.quote_currency === 'USD' && fxRate && (
+                                      <span className="ml-1 text-neutral-500">
+                                        (≈ €
+                                        {(pos.quantity * pos.last_price * fxRate).toFixed(2)})
+                                      </span>
+                                    )}
+                                  </span>
+                                  {pos.comment && (
+                                    <span className="col-span-2">
+                                      Комментарий:{' '}
+                                      <span className="font-medium">{pos.comment}</span>
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="flex flex-col gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => startEditPosition(pos)}
+                                  className="text-xs text-blue-600 hover:text-blue-800"
+                                >
+                                  Редактировать
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeletePosition(pos.id)}
+                                  className="text-xs text-red-600 hover:text-red-800"
+                                >
+                                  Удалить
+                                </button>
+                              </div>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                <form className="mt-2 space-y-3" onSubmit={handleCreatePosition}>
+                  <h3 className="text-sm font-semibold text-neutral-900">Добавить позицию</h3>
+
+                  <div className="space-y-1">
+                    <label
+                      className="block text-xs font-medium text-neutral-700"
+                      htmlFor="position-kind"
+                    >
+                      Тип инструмента
+                    </label>
+                    <select
+                      id="position-kind"
+                      value={positionKind}
+                      onChange={(e) => setPositionKind(e.target.value as InstrumentKind)}
+                      className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                    >
+                      <option value="stock">stock</option>
+                      <option value="etf">etf</option>
+                      <option value="bond">bond</option>
+                      <option value="crypto">crypto</option>
+                      <option value="other">other</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label
+                      className="block text-xs font-medium text-neutral-700"
+                      htmlFor="position-symbol"
+                    >
+                      Символ (ручной ввод)
+                    </label>
+                    <input
+                      id="position-symbol"
+                      type="text"
+                      value={positionSymbol}
+                      onChange={(e) => setPositionSymbol(e.target.value)}
+                      required
+                      className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                      placeholder="Например, AAPL"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label
+                      className="block text-xs font-medium text-neutral-700"
+                      htmlFor="position-quantity"
+                    >
+                      Количество
+                    </label>
+                    <input
+                      id="position-quantity"
+                      type="number"
+                      step="any"
+                      min="0"
+                      value={positionQuantity}
+                      onChange={(e) => setPositionQuantity(e.target.value)}
+                      required
+                      className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label
+                      className="block text-xs font-medium text-neutral-700"
+                      htmlFor="position-comment"
+                    >
+                      Комментарий (необязательно)
+                    </label>
+                    <input
+                      id="position-comment"
+                      type="text"
+                      value={positionComment}
+                      onChange={(e) => setPositionComment(e.target.value)}
+                      className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                    />
+                  </div>
+
+                  {positionFormError && (
+                    <div className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">
+                      {positionFormError}
+                    </div>
+                  )}
+
+                  <button
+                    type="submit"
+                    disabled={positionSubmitting}
+                    className="mt-1 w-full rounded-lg bg-neutral-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:bg-neutral-400"
+                  >
+                    {positionSubmitting ? 'Создание...' : 'Создать позицию'}
+                  </button>
+                </form>
+              </>
+            ) : null}
+          </section>
 
         {/* Danger Zone */}
         <section className="rounded-2xl border-2 border-red-200 bg-red-50 p-6 shadow-sm">
