@@ -4,13 +4,15 @@ import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { getSession, supabase } from '../../lib/supabaseClient';
 
-type AccountKind = 'debit' | 'credit' | 'cash';
+type AccountKind = 'debit' | 'credit' | 'cash' | 'broker';
+type AccountCurrency = 'EUR' | 'USD';
 
 interface Account {
   id: string;
   user_id: string;
   name: string;
   kind: AccountKind;
+  currency: AccountCurrency | null;
   starting_balance: number;
   warning_threshold: number;
   credit_limit: number | null;
@@ -59,14 +61,24 @@ type AccountBalance = {
   creditUsed?: number;
 };
 
-// Helper для форматирования денег в EUR
-const formatMoney = (amount: number): string => {
+// Helper для форматирования денег по валюте
+const formatMoney = (amount: number, currency: AccountCurrency = 'EUR'): string => {
   return new Intl.NumberFormat('de-DE', {
     style: 'currency',
-    currency: 'EUR',
+    currency: currency === 'USD' ? 'USD' : 'EUR',
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(amount);
+};
+
+// Helper для получения символа валюты
+const getCurrencySymbol = (currency: AccountCurrency | null): string => {
+  return (currency || 'EUR') === 'USD' ? '$' : '€';
+};
+
+// Helper для получения валюты счета
+const getAccountCurrency = (account: Account | undefined): AccountCurrency => {
+  return (account?.currency || 'EUR') as AccountCurrency;
 };
 
 export default function FinanceAppPage() {
@@ -80,6 +92,11 @@ export default function FinanceAppPage() {
   const [transfers, setTransfers] = useState<Transfer[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // FX rate
+  const [fxRate, setFxRate] = useState<number | null>(null);
+  const [fxError, setFxError] = useState<string | null>(null);
+  const [transferCurrencyError, setTransferCurrencyError] = useState<string | null>(null);
 
   // Флаги для отслеживания ручного выбора счетов
   const [accountIncomeManuallySet, setAccountIncomeManuallySet] = useState(false);
@@ -173,6 +190,13 @@ export default function FinanceAppPage() {
     init();
   }, [router]);
 
+  useEffect(() => {
+    // Load FX rate after session is available
+    if (userId) {
+      loadFxRate();
+    }
+  }, [userId]);
+
   const loadAccounts = async () => {
     const { data, error: fetchError } = await supabase
       .from('accounts')
@@ -185,6 +209,38 @@ export default function FinanceAppPage() {
     }
 
     setAccounts((data || []) as Account[]);
+  };
+
+  const loadFxRate = async () => {
+    if (!userId) return;
+
+    setFxError(null);
+
+    try {
+      const { data, error: fetchError } = await supabase
+        .from('fx_rates')
+        .select('rate, fetched_at')
+        .eq('base_currency', 'USD')
+        .eq('quote_currency', 'EUR')
+        .order('fetched_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (!fetchError && data) {
+        setFxRate(data.rate);
+      } else {
+        setFxRate(null);
+        if (fetchError) {
+          setFxError(fetchError.message);
+          console.error('FX load error:', fetchError.message);
+        }
+      }
+    } catch (err) {
+      setFxRate(null);
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      setFxError(errorMessage);
+      console.error('FX load error:', errorMessage);
+    }
   };
 
   const loadCategories = async () => {
@@ -365,8 +421,9 @@ export default function FinanceAppPage() {
     const account = accountsById.get(accountExpense);
     if (account && account.kind === 'cash') {
       const currentBalance = accountBalances.get(accountExpense)?.balance || 0;
+      const accountCurrency = getAccountCurrency(account);
       if (amount > currentBalance) {
-        setError(`Недостаточно средств на счёте "${account.name}". Доступно: ${formatMoney(currentBalance)}.`);
+        setError(`Недостаточно средств на счёте "${account.name}". Доступно: ${formatMoney(currentBalance, accountCurrency)}.`);
         return;
       }
     }
@@ -439,15 +496,60 @@ export default function FinanceAppPage() {
         setError('Счета "Откуда" и "Куда" не могут совпадать.');
         return;
       }
+
+      // Check currency mismatch
+      const fromAccount = accountsById.get(fromAccountId);
+      const toAccount = accountsById.get(toAccountId);
+      if (fromAccount && toAccount) {
+        const fromCurrency = getAccountCurrency(fromAccount);
+        const toCurrency = getAccountCurrency(toAccount);
+        if (fromCurrency !== toCurrency) {
+          setTransferCurrencyError('Перевод между счетами с разной валютой запрещён в v1. Выберите счета с одинаковой валютой.');
+          return;
+        }
+      }
     }
+
+    // Check currency mismatch for credit repayment
+    if (isCreditRepayment && toAccountId) {
+      const creditAccount = accountsById.get(toAccountId);
+      if (creditAccount && creditAccount.debit_anchor_account_id) {
+        const debitAccount = accountsById.get(creditAccount.debit_anchor_account_id);
+        if (creditAccount && debitAccount) {
+          const creditCurrency = getAccountCurrency(creditAccount);
+          const debitCurrency = getAccountCurrency(debitAccount);
+          if (creditCurrency !== debitCurrency) {
+            setTransferCurrencyError('Перевод между счетами с разной валютой запрещён в v1. Выберите счета с одинаковой валютой.');
+            return;
+          }
+        }
+      }
+    }
+
+    setTransferCurrencyError(null);
 
     // Check cash restriction
     const fromAccount = accountsById.get(fromAccountId);
     if (fromAccount && fromAccount.kind === 'cash') {
       const currentBalance = accountBalances.get(fromAccountId)?.balance || 0;
+      const accountCurrency = getAccountCurrency(fromAccount);
       if (amount > currentBalance) {
-        setError(`Недостаточно средств на счёте "${fromAccount.name}". Доступно: ${formatMoney(currentBalance)}.`);
+        setError(`Недостаточно средств на счёте "${fromAccount.name}". Доступно: ${formatMoney(currentBalance, accountCurrency)}.`);
         return;
+      }
+    }
+
+    // Final currency validation (defensive check)
+    if (!isCreditRepayment) {
+      const finalFromAccount = accountsById.get(fromAccountId);
+      const finalToAccount = accountsById.get(toAccountId);
+      if (finalFromAccount && finalToAccount) {
+        const fromCurrency = getAccountCurrency(finalFromAccount);
+        const toCurrency = getAccountCurrency(finalToAccount);
+        if (fromCurrency !== toCurrency) {
+          setError('Перевод между счетами с разной валютой запрещён в v1. Выберите счета с одинаковой валютой.');
+          return;
+        }
       }
     }
 
@@ -781,9 +883,21 @@ export default function FinanceAppPage() {
       const creditAccount = accountsById.get(toAccountTransfer);
       if (creditAccount && creditAccount.debit_anchor_account_id) {
         setFromAccountTransfer(creditAccount.debit_anchor_account_id);
+        // Check currency mismatch
+        const debitAccount = accountsById.get(creditAccount.debit_anchor_account_id);
+        if (creditAccount && debitAccount) {
+          const creditCurrency = getAccountCurrency(creditAccount);
+          const debitCurrency = getAccountCurrency(debitAccount);
+          if (creditCurrency !== debitCurrency) {
+            setTransferCurrencyError('Перевод между счетами с разной валютой запрещён в v1. Выберите счета с одинаковой валютой.');
+          } else {
+            setTransferCurrencyError(null);
+          }
+        }
       }
     } else if (!isCreditRepayment) {
       setFromAccountTransfer('');
+      setTransferCurrencyError(null);
     }
   }, [isCreditRepayment, toAccountTransfer, accountsById]);
 
@@ -829,6 +943,12 @@ export default function FinanceAppPage() {
           <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
         )}
 
+        {fxError && (
+          <div className="rounded-lg bg-yellow-50 px-4 py-3 text-xs text-yellow-700">
+            FX load error: {fxError}
+          </div>
+        )}
+
         {/* Operations form - moved to top */}
         <section className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">
           <h2 className="mb-4 text-lg font-semibold text-neutral-900">Операции</h2>
@@ -852,21 +972,21 @@ export default function FinanceAppPage() {
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-neutral-700">Куда</label>
-                  <select
-                    value={accountIncome}
-                    onChange={(e) => {
-                      setAccountIncome(e.target.value);
-                      setAccountIncomeManuallySet(true);
-                    }}
-                    className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
-                  >
-                    <option value="">Выберите счёт</option>
-                    {accounts.map((acc) => (
-                      <option key={acc.id} value={acc.id}>
-                        {acc.name} ({acc.kind})
-                      </option>
-                    ))}
-                  </select>
+                    <select
+                      value={accountIncome}
+                      onChange={(e) => {
+                        setAccountIncome(e.target.value);
+                        setAccountIncomeManuallySet(true);
+                      }}
+                      className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                    >
+                      <option value="">Выберите счёт</option>
+                      {accounts.map((acc) => (
+                        <option key={acc.id} value={acc.id}>
+                          {acc.name} ({acc.kind}) {getCurrencySymbol(acc.currency)}
+                        </option>
+                      ))}
+                    </select>
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-neutral-700">
@@ -925,21 +1045,21 @@ export default function FinanceAppPage() {
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-neutral-700">Откуда</label>
-                  <select
-                    value={accountExpense}
-                    onChange={(e) => {
-                      setAccountExpense(e.target.value);
-                      setAccountExpenseManuallySet(true);
-                    }}
-                    className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
-                  >
-                    <option value="">Выберите счёт</option>
-                    {accounts.map((acc) => (
-                      <option key={acc.id} value={acc.id}>
-                        {acc.name} ({acc.kind})
-                      </option>
-                    ))}
-                  </select>
+                    <select
+                      value={accountExpense}
+                      onChange={(e) => {
+                        setAccountExpense(e.target.value);
+                        setAccountExpenseManuallySet(true);
+                      }}
+                      className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                    >
+                      <option value="">Выберите счёт</option>
+                      {accounts.map((acc) => (
+                        <option key={acc.id} value={acc.id}>
+                          {acc.name} ({acc.kind}) {getCurrencySymbol(acc.currency)}
+                        </option>
+                      ))}
+                    </select>
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-neutral-700">
@@ -1013,13 +1133,30 @@ export default function FinanceAppPage() {
                       <label className="block text-xs font-medium text-neutral-700">Откуда</label>
                       <select
                         value={fromAccountTransfer}
-                        onChange={(e) => setFromAccountTransfer(e.target.value)}
+                        onChange={(e) => {
+                          setFromAccountTransfer(e.target.value);
+                          setTransferCurrencyError(null);
+                          // Check currency mismatch
+                          if (e.target.value && toAccountTransfer) {
+                            const fromAcc = accountsById.get(e.target.value);
+                            const toAcc = accountsById.get(toAccountTransfer);
+                            if (fromAcc && toAcc) {
+                              const fromCurrency = getAccountCurrency(fromAcc);
+                              const toCurrency = getAccountCurrency(toAcc);
+                              if (fromCurrency !== toCurrency) {
+                                setTransferCurrencyError('Перевод между счетами с разной валютой запрещён в v1. Выберите счета с одинаковой валютой.');
+                              } else {
+                                setTransferCurrencyError(null);
+                              }
+                            }
+                          }
+                        }}
                         className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
                       >
                         <option value="">Выберите счёт</option>
                         {accounts.map((acc) => (
                           <option key={acc.id} value={acc.id}>
-                            {acc.name} ({acc.kind})
+                            {acc.name} ({acc.kind}) {getCurrencySymbol(acc.currency)}
                           </option>
                         ))}
                       </select>
@@ -1028,13 +1165,30 @@ export default function FinanceAppPage() {
                       <label className="block text-xs font-medium text-neutral-700">Куда</label>
                       <select
                         value={toAccountTransfer}
-                        onChange={(e) => setToAccountTransfer(e.target.value)}
+                        onChange={(e) => {
+                          setToAccountTransfer(e.target.value);
+                          setTransferCurrencyError(null);
+                          // Check currency mismatch
+                          if (e.target.value && fromAccountTransfer) {
+                            const fromAcc = accountsById.get(fromAccountTransfer);
+                            const toAcc = accountsById.get(e.target.value);
+                            if (fromAcc && toAcc) {
+                              const fromCurrency = getAccountCurrency(fromAcc);
+                              const toCurrency = getAccountCurrency(toAcc);
+                              if (fromCurrency !== toCurrency) {
+                                setTransferCurrencyError('Перевод между счетами с разной валютой запрещён в v1. Выберите счета с одинаковой валютой.');
+                              } else {
+                                setTransferCurrencyError(null);
+                              }
+                            }
+                          }
+                        }}
                         className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
                       >
                         <option value="">Выберите счёт</option>
                         {accounts.map((acc) => (
                           <option key={acc.id} value={acc.id}>
-                            {acc.name} ({acc.kind})
+                            {acc.name} ({acc.kind}) {getCurrencySymbol(acc.currency)}
                           </option>
                         ))}
                       </select>
@@ -1046,13 +1200,16 @@ export default function FinanceAppPage() {
                       <label className="block text-xs font-medium text-neutral-700">Куда (кредитка)</label>
                       <select
                         value={toAccountTransfer}
-                        onChange={(e) => setToAccountTransfer(e.target.value)}
+                        onChange={(e) => {
+                          setToAccountTransfer(e.target.value);
+                          setTransferCurrencyError(null);
+                        }}
                         className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
                       >
                         <option value="">Выберите кредитный счёт</option>
                         {creditAccounts.map((acc) => (
                           <option key={acc.id} value={acc.id}>
-                            {acc.name}
+                            {acc.name} {getCurrencySymbol(acc.currency)}
                           </option>
                         ))}
                       </select>
@@ -1073,6 +1230,11 @@ export default function FinanceAppPage() {
                     )}
                   </>
                 )}
+                {transferCurrencyError && (
+                  <div className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">
+                    {transferCurrencyError}
+                  </div>
+                )}
                 <div>
                   <label className="block text-xs font-medium text-neutral-700">
                     Комментарий (опционально)
@@ -1087,7 +1249,7 @@ export default function FinanceAppPage() {
                 </div>
                 <button
                   onClick={handleTransfer}
-                  disabled={submittingTransfer}
+                  disabled={submittingTransfer || !!transferCurrencyError}
                   className="w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-neutral-400"
                 >
                   {submittingTransfer ? 'Сохранение...' : 'Ввод Transfer'}
@@ -1167,12 +1329,22 @@ export default function FinanceAppPage() {
                     </div>
                     <div className="mt-2">
                       <p className="text-lg font-semibold text-neutral-900">
-                        {formatMoney(accBalance.balance)}
+                        {formatMoney(accBalance.balance, getAccountCurrency(account))}
+                        {getAccountCurrency(account) === 'USD' && fxRate && (
+                          <span className="ml-1 text-sm font-normal text-neutral-500">
+                            (≈ €{(accBalance.balance * fxRate).toFixed(2)})
+                          </span>
+                        )}
+                        {getAccountCurrency(account) === 'USD' && !fxRate && (
+                          <span className="ml-1 text-sm font-normal text-neutral-400">
+                            (≈ € — FX not loaded)
+                          </span>
+                        )}
                       </p>
                       {account.kind === 'credit' && accBalance.creditUsed !== undefined && (
                         <p className="mt-1 text-xs text-neutral-600">
-                          Использовано кредита: {formatMoney(accBalance.creditUsed)} из{' '}
-                          {formatMoney(account.credit_limit || 0)}
+                          Использовано кредита: {formatMoney(accBalance.creditUsed, getAccountCurrency(account))} из{' '}
+                          {formatMoney(account.credit_limit || 0, getAccountCurrency(account))}
                         </p>
                       )}
                     </div>
@@ -1218,8 +1390,11 @@ export default function FinanceAppPage() {
               type: 'income' | 'expense' | 'transfer';
               amount: number;
               accountName?: string;
+              accountCurrency?: AccountCurrency;
               fromAccountName?: string;
+              fromAccountCurrency?: AccountCurrency;
               toAccountName?: string;
+              toAccountCurrency?: AccountCurrency;
               categoryName?: string;
               comment: string | null;
               date: string;
@@ -1234,7 +1409,9 @@ export default function FinanceAppPage() {
                 type: 'transfer',
                 amount: transfer.amount,
                 fromAccountName: fromAccount?.name,
+                fromAccountCurrency: fromAccount ? getAccountCurrency(fromAccount) : 'EUR',
                 toAccountName: toAccount?.name,
+                toAccountCurrency: toAccount ? getAccountCurrency(toAccount) : 'EUR',
                 comment: transfer.comment,
                 date: transfer.created_at,
               });
@@ -1251,6 +1428,7 @@ export default function FinanceAppPage() {
                   type: tx.kind as 'income' | 'expense',
                   amount: tx.amount,
                   accountName: account?.name,
+                  accountCurrency: account ? getAccountCurrency(account) : 'EUR',
                   categoryName: category?.name,
                   comment: tx.comment,
                   date: tx.created_at,
@@ -1321,18 +1499,41 @@ export default function FinanceAppPage() {
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
-                      <p
-                        className={`text-base font-semibold ${
-                          op.type === 'income'
-                            ? 'text-emerald-700'
-                            : op.type === 'expense'
-                              ? 'text-red-700'
-                              : 'text-blue-700'
-                        }`}
-                      >
-                        {op.type === 'income' ? '+' : op.type === 'expense' ? '-' : ''}
-                        {formatMoney(op.amount)}
-                      </p>
+                      {(() => {
+                        const opCurrency = op.type === 'transfer' 
+                          ? (op.fromAccountCurrency || 'EUR')
+                          : (op.accountCurrency || 'EUR');
+                        const formattedAmount = formatMoney(op.amount, opCurrency);
+                        const showEurEquivalent = opCurrency === 'USD' && fxRate;
+                        const eurAmount = opCurrency === 'USD' && fxRate ? op.amount * fxRate : null;
+                        
+                        return (
+                          <>
+                            <p
+                              className={`text-base font-semibold ${
+                                op.type === 'income'
+                                  ? 'text-emerald-700'
+                                  : op.type === 'expense'
+                                    ? 'text-red-700'
+                                    : 'text-blue-700'
+                              }`}
+                            >
+                              {op.type === 'income' ? '+' : op.type === 'expense' ? '-' : ''}
+                              {formattedAmount}
+                              {showEurEquivalent && eurAmount && (
+                                <span className="ml-1 text-sm font-normal text-neutral-500">
+                                  (≈ €{eurAmount.toFixed(2)})
+                                </span>
+                              )}
+                              {opCurrency === 'USD' && !fxRate && (
+                                <span className="ml-1 text-sm font-normal text-neutral-400">
+                                  (≈ € — FX not loaded)
+                                </span>
+                              )}
+                            </p>
+                          </>
+                        );
+                      })()}
                       <button
                         onClick={() => handleEditOperation(op)}
                         className="rounded-lg border border-neutral-300 px-2 py-1 text-xs font-medium text-neutral-700 transition hover:bg-neutral-100"
