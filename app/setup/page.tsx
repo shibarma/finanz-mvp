@@ -1196,10 +1196,44 @@ export default function SetupPage() {
     }
 
     setPositionSubmitting(true);
+    setPositionFormError(null);
 
     try {
       // Normalize symbol
       const normalizedSymbol = positionSymbol.trim().toUpperCase();
+
+      // Fetch quote from Finnhub BEFORE creating instrument/position
+      const quoteResponse = await fetch(
+        `/api/market/quote?symbol=${encodeURIComponent(normalizedSymbol)}`,
+      );
+
+      let quoteData;
+      try {
+        quoteData = await quoteResponse.json();
+      } catch (parseError) {
+        setPositionSubmitting(false);
+        setPositionFormError(
+          'Не удалось получить цену с Finnhub. Попробуйте позже.',
+        );
+        return;
+      }
+
+      if (!quoteData.ok) {
+        setPositionSubmitting(false);
+        if (quoteResponse.status === 404) {
+          setPositionFormError(
+            'Инструмент не найден на Finnhub или для него недоступна цена. Проверьте символ.',
+          );
+        } else {
+          setPositionFormError(
+            'Не удалось получить цену с Finnhub. Попробуйте позже.',
+          );
+        }
+        return;
+      }
+
+      const finnhubPrice = quoteData.price;
+      const fetchedAt = quoteData.fetched_at || new Date().toISOString();
 
       // Find or create instrument
       const { data: existingInstrument, error: findError } = await supabase
@@ -1266,8 +1300,7 @@ export default function SetupPage() {
         return;
       }
 
-      // Create position with last_price = 99
-      const now = new Date().toISOString();
+      // Create position with last_price from Finnhub
       const { error: positionError } = await supabase.from('positions').insert({
         user_id: userId,
         broker_account_id: selectedBrokerAccountId,
@@ -1275,8 +1308,8 @@ export default function SetupPage() {
         quote_currency: brokerAccount.currency,
         quantity: quantityNum,
         comment: positionComment.trim() || null,
-        last_price: 99,
-        last_price_at: now,
+        last_price: finnhubPrice,
+        last_price_at: fetchedAt,
       });
 
       if (positionError) {
