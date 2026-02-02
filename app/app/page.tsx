@@ -23,6 +23,25 @@ interface Account {
   created_at: string;
 }
 
+interface InstrumentRef {
+  provider_symbol: string | null;
+  display_symbol: string | null;
+}
+
+interface PositionMain {
+  id: string;
+  user_id: string;
+  broker_account_id: string;
+  instrument_id: string;
+  quote_currency: AccountCurrency | null;
+  quantity: number;
+  comment: string | null;
+  last_price: number | null;
+  last_price_at: string | null;
+  created_at: string;
+  instruments?: InstrumentRef | InstrumentRef[] | null;
+}
+
 interface Transfer {
   id: string;
   user_id: string;
@@ -81,6 +100,33 @@ const getAccountCurrency = (account: Account | undefined): AccountCurrency => {
   return (account?.currency || 'EUR') as AccountCurrency;
 };
 
+// Helper для получения символа позиции
+const getPositionSymbol = (position: PositionMain): string => {
+  const inst = position.instruments;
+  if (!inst) return '—';
+  const i = Array.isArray(inst) ? inst[0] : inst;
+  return (i?.display_symbol || i?.provider_symbol || '—').toString();
+};
+
+// Helper для конвертации баланса счета в EUR
+const toEur = (
+  amount: number,
+  currency: AccountCurrency | null,
+  usdToEurRate: number | null,
+): number | null => {
+  const curr = (currency || 'EUR') as AccountCurrency;
+  if (curr === 'EUR') {
+    return amount;
+  }
+  if (curr === 'USD') {
+    if (!usdToEurRate || !Number.isFinite(usdToEurRate) || usdToEurRate <= 0) {
+      return null;
+    }
+    return amount * usdToEurRate;
+  }
+  return null;
+};
+
 export default function FinanceAppPage() {
   const router = useRouter();
   const [sessionChecked, setSessionChecked] = useState(false);
@@ -90,6 +136,7 @@ export default function FinanceAppPage() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [transfers, setTransfers] = useState<Transfer[]>([]);
+  const [positions, setPositions] = useState<PositionMain[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -147,6 +194,15 @@ export default function FinanceAppPage() {
   const [commentTransfer, setCommentTransfer] = useState('');
   const [submittingTransfer, setSubmittingTransfer] = useState(false);
 
+  // Invest Buy/Sell form (UI + state only, no DB writes)
+  const [investBroker, setInvestBroker] = useState<string>('');
+  const [investInstrument, setInvestInstrument] = useState<string>('');
+  const [investSide, setInvestSide] = useState<'Buy' | 'Sell'>('Buy');
+  const [investQuantity, setInvestQuantity] = useState('');
+  const [investPricePerUnit, setInvestPricePerUnit] = useState('');
+  const [investFee, setInvestFee] = useState('0');
+  const [investComment, setInvestComment] = useState('');
+
   const accountsById = useMemo(() => {
     const map = new Map<string, Account>();
     accounts.forEach((acc) => {
@@ -167,6 +223,31 @@ export default function FinanceAppPage() {
     () => accounts.filter((a) => a.kind === 'credit'),
     [accounts],
   );
+  const brokerAccounts = useMemo(
+    () => accounts.filter((a) => a.kind === 'broker'),
+    [accounts],
+  );
+  const positionsByBroker = useMemo(
+    () => (investBroker ? positions.filter((p) => p.broker_account_id === investBroker) : []),
+    [positions, investBroker],
+  );
+
+  // Reset instrument when broker changes; set price_per_unit when instrument selected
+  useEffect(() => {
+    setInvestInstrument('');
+    setInvestPricePerUnit('');
+  }, [investBroker]);
+
+  useEffect(() => {
+    if (investInstrument) {
+      const pos = positions.find((p) => p.id === investInstrument);
+      if (pos && pos.last_price != null) {
+        setInvestPricePerUnit(pos.last_price.toString());
+      }
+    } else {
+      setInvestPricePerUnit('');
+    }
+  }, [investInstrument, positions]);
 
   useEffect(() => {
     const init = async () => {
@@ -184,6 +265,7 @@ export default function FinanceAppPage() {
         loadCategories(),
         loadTransactions(session.user.id),
         loadTransfers(session.user.id),
+        loadPositions(session.user.id),
       ]);
     };
 
@@ -287,6 +369,20 @@ export default function FinanceAppPage() {
     setTransfers((data || []) as Transfer[]);
   };
 
+  const loadPositions = async (uid: string) => {
+    const { data, error: fetchError } = await supabase
+      .from('positions')
+      .select('id, user_id, broker_account_id, instrument_id, quote_currency, quantity, comment, last_price, last_price_at, created_at, instruments(provider_symbol, display_symbol)')
+      .eq('user_id', uid);
+
+    if (fetchError) {
+      setError(fetchError.message);
+      return;
+    }
+
+    setPositions((data || []) as PositionMain[]);
+  };
+
   // Calculate balances for each account
   const accountBalances = useMemo(() => {
     const balances = new Map<string, AccountBalance>();
@@ -337,28 +433,80 @@ export default function FinanceAppPage() {
 
   // Calculate totals
   const totals = useMemo(() => {
-    let totalBalance = 0;
-    let debitTotal = 0;
-    let creditTotal = 0;
-    let cashTotal = 0;
+    let totalEur = 0;
+    let debitEur = 0;
+    let creditEur = 0;
+    let cashEur = 0;
+    let brokerCashEur = 0;
+    let investEur = 0;
+    let usdExcludedFromTotals = false;
 
     accountBalances.forEach((accBalance, accountId) => {
       const account = accountsById.get(accountId);
       if (!account) return;
 
-      totalBalance += accBalance.balance;
+      const accountCurrency = getAccountCurrency(account);
+
+      // Broker: считаем отдельно, не включаем в общий totalEur
+      if (account.kind === 'broker') {
+        const eurValueBroker = toEur(accBalance.balance, accountCurrency, fxRate);
+        if (eurValueBroker === null) {
+          if (accountCurrency === 'USD') {
+            usdExcludedFromTotals = true;
+          }
+          return;
+        }
+        brokerCashEur += eurValueBroker;
+        return;
+      }
+
+      // Сводка (Total/Debit/Credit/Cash) считается только по debit/credit/cash
+      if (account.kind !== 'debit' && account.kind !== 'credit' && account.kind !== 'cash') {
+        return;
+      }
+
+      const eurValue = toEur(accBalance.balance, accountCurrency, fxRate);
+
+      // Если курс для USD недоступен, исключаем такие счета из сводки
+      if (eurValue === null) {
+        if (accountCurrency === 'USD') {
+          usdExcludedFromTotals = true;
+        }
+        return;
+      }
+
+      totalEur += eurValue;
 
       if (account.kind === 'debit') {
-        debitTotal += accBalance.balance;
+        debitEur += eurValue;
       } else if (account.kind === 'credit') {
-        creditTotal += accBalance.balance;
+        creditEur += eurValue;
       } else if (account.kind === 'cash') {
-        cashTotal += accBalance.balance;
+        cashEur += eurValue;
       }
     });
 
-    return { totalBalance, debitTotal, creditTotal, cashTotal };
-  }, [accountBalances, accountsById]);
+    // Инвестиции: сумма quantity * last_price по всем позициям
+    positions.forEach((position) => {
+      const price = position.last_price ?? 0;
+      if (!price) {
+        // last_price отсутствует или 0 — считаем как 0 EUR для сводки
+        return;
+      }
+
+      const rawValue = position.quantity * price;
+      const eurValue = toEur(rawValue, position.quote_currency as AccountCurrency | null, fxRate);
+
+      if (eurValue === null) {
+        // Если нет FX для USD, такие позиции не включаем в сводку
+        return;
+      }
+
+      investEur += eurValue;
+    });
+
+    return { totalEur, debitEur, creditEur, cashEur, brokerCashEur, investEur, usdExcludedFromTotals };
+  }, [accountBalances, accountsById, fxRate, positions]);
 
   const handleIncome = async () => {
     if (!userId) return;
@@ -953,7 +1101,7 @@ export default function FinanceAppPage() {
         <section className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">
           <h2 className="mb-4 text-lg font-semibold text-neutral-900">Операции</h2>
 
-          <div className="grid gap-6 md:grid-cols-3">
+          <div className="grid gap-6 md:grid-cols-4">
             {/* Income */}
             <div className="space-y-3 rounded-lg border border-neutral-200 p-4">
               <h3 className="text-sm font-semibold text-neutral-900">Income</h3>
@@ -1256,38 +1404,197 @@ export default function FinanceAppPage() {
                 </button>
               </div>
             </div>
+
+            {/* Invest Buy / Sell */}
+            <div className="space-y-3 rounded-lg border border-neutral-200 p-4">
+              <h3 className="text-sm font-semibold text-neutral-900">Invest Buy / Sell</h3>
+              <div className="space-y-2">
+                <div>
+                  <label className="block text-xs font-medium text-neutral-700">Брокер</label>
+                  <select
+                    value={investBroker}
+                    onChange={(e) => setInvestBroker(e.target.value)}
+                    className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                  >
+                    <option value="">Выберите брокера</option>
+                    {brokerAccounts.map((acc) => (
+                      <option key={acc.id} value={acc.id}>
+                        {acc.name} {getCurrencySymbol(acc.currency)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-neutral-700">Инструмент</label>
+                  <select
+                    value={investInstrument}
+                    onChange={(e) => setInvestInstrument(e.target.value)}
+                    disabled={!investBroker}
+                    className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200 disabled:bg-neutral-100"
+                  >
+                    <option value="">Выберите инструмент</option>
+                    {positionsByBroker.map((pos) => (
+                      <option key={pos.id} value={pos.id}>
+                        {getPositionSymbol(pos)} (qty: {pos.quantity})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-neutral-700">Сторона</label>
+                  <select
+                    value={investSide}
+                    onChange={(e) => setInvestSide(e.target.value as 'Buy' | 'Sell')}
+                    className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                  >
+                    <option value="Buy">Buy</option>
+                    <option value="Sell">Sell</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-neutral-700">Количество</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="any"
+                    value={investQuantity}
+                    onChange={(e) => setInvestQuantity(e.target.value)}
+                    className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                    placeholder="0"
+                  />
+                  {parseFloat(investQuantity) <= 0 && investQuantity !== '' && (
+                    <p className="mt-1 text-xs text-red-600">Количество должно быть &gt; 0</p>
+                  )}
+                  {investSide === 'Sell' && investInstrument && (
+                    <p className="mt-1 text-xs text-neutral-500">
+                      При Sell количество должно быть ≤ текущей позиции (проверка позже)
+                    </p>
+                  )}
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-neutral-700">Цена за единицу</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="any"
+                    value={investPricePerUnit}
+                    onChange={(e) => setInvestPricePerUnit(e.target.value)}
+                    className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                    placeholder="0"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-neutral-700">Комиссия (опционально)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="any"
+                    value={investFee}
+                    onChange={(e) => setInvestFee(e.target.value)}
+                    className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                    placeholder="0"
+                  />
+                  {parseFloat(investFee) < 0 && investFee !== '' && (
+                    <p className="mt-1 text-xs text-red-600">Комиссия должна быть ≥ 0</p>
+                  )}
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-neutral-700">Комментарий (опционально)</label>
+                  <input
+                    type="text"
+                    value={investComment}
+                    onChange={(e) => setInvestComment(e.target.value)}
+                    className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                    placeholder="Комментарий"
+                  />
+                </div>
+                {(() => {
+                  const qty = parseFloat(investQuantity);
+                  const price = parseFloat(investPricePerUnit);
+                  const fee = parseFloat(investFee);
+                  const valid =
+                    investBroker &&
+                    investInstrument &&
+                    !Number.isNaN(qty) &&
+                    qty > 0 &&
+                    !Number.isNaN(price) &&
+                    price > 0 &&
+                    !Number.isNaN(fee) &&
+                    fee >= 0;
+                  const canBuy = valid && investSide === 'Buy';
+                  const canSell = valid && investSide === 'Sell';
+                  return (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => {}}
+                        disabled={!canBuy}
+                        className="w-full rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-neutral-400"
+                      >
+                        Submit Buy
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {}}
+                        disabled={!canSell}
+                        className="w-full rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-neutral-400"
+                      >
+                        Submit Sell
+                      </button>
+                    </>
+                  );
+                })()}
+              </div>
+            </div>
           </div>
         </section>
 
         {/* Summary */}
         <section className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">
-          <h2 className="mb-4 text-lg font-semibold text-neutral-900">Сводка</h2>
+          <h2 className="mb-4 text-lg font-semibold text-neutral-900">Сводка (в EUR)</h2>
           <div className="grid gap-4 md:grid-cols-4">
             <div>
-              <p className="text-xs text-neutral-600">Общий баланс</p>
+              <p className="text-xs text-neutral-600">Общий баланс (EUR)</p>
               <p className="text-2xl font-semibold text-neutral-900">
-                {formatMoney(totals.totalBalance)}
+                €{totals.totalEur.toFixed(2)}
               </p>
             </div>
             <div>
-              <p className="text-xs text-neutral-600">Debit</p>
+              <p className="text-xs text-neutral-600">Debit (EUR)</p>
               <p className="text-2xl font-semibold text-neutral-900">
-                {formatMoney(totals.debitTotal)}
+                €{totals.debitEur.toFixed(2)}
               </p>
             </div>
             <div>
-              <p className="text-xs text-neutral-600">Credit</p>
+              <p className="text-xs text-neutral-600">Credit (EUR)</p>
               <p className="text-2xl font-semibold text-neutral-900">
-                {formatMoney(totals.creditTotal)}
+                €{totals.creditEur.toFixed(2)}
               </p>
             </div>
             <div>
-              <p className="text-xs text-neutral-600">Cash</p>
+              <p className="text-xs text-neutral-600">Cash (EUR)</p>
               <p className="text-2xl font-semibold text-neutral-900">
-                {formatMoney(totals.cashTotal)}
+                €{totals.cashEur.toFixed(2)}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-neutral-600">Broker (EUR)</p>
+              <p className="text-2xl font-semibold text-neutral-900">
+                €{totals.brokerCashEur.toFixed(2)}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-neutral-600">Invest (EUR)</p>
+              <p className="text-2xl font-semibold text-neutral-900">
+                €{totals.investEur.toFixed(2)}
               </p>
             </div>
           </div>
+          {totals.usdExcludedFromTotals && (
+            <p className="mt-2 text-xs text-yellow-700">
+              Курс FX не загружен: USD-счета временно исключены из EUR-итогов.
+            </p>
+          )}
         </section>
 
         {/* Accounts list */}
