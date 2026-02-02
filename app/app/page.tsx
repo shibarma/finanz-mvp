@@ -194,7 +194,7 @@ export default function FinanceAppPage() {
   const [commentTransfer, setCommentTransfer] = useState('');
   const [submittingTransfer, setSubmittingTransfer] = useState(false);
 
-  // Invest Buy/Sell form (UI + state only, no DB writes)
+  // Invest Buy/Sell form
   const [investBroker, setInvestBroker] = useState<string>('');
   const [investInstrument, setInvestInstrument] = useState<string>('');
   const [investSide, setInvestSide] = useState<'Buy' | 'Sell'>('Buy');
@@ -202,6 +202,7 @@ export default function FinanceAppPage() {
   const [investPricePerUnit, setInvestPricePerUnit] = useState('');
   const [investFee, setInvestFee] = useState('0');
   const [investComment, setInvestComment] = useState('');
+  const [submittingInvest, setSubmittingInvest] = useState(false);
 
   const accountsById = useMemo(() => {
     const map = new Map<string, Account>();
@@ -777,6 +778,154 @@ export default function FinanceAppPage() {
     setCommentTransfer('');
     setOperationsPage(0);
     await Promise.all([loadTransactions(userId), loadTransfers(userId)]);
+  };
+
+  const handleInvestSubmit = async (side: 'Buy' | 'Sell') => {
+    if (!userId) return;
+
+    setError(null);
+
+    const quantity = parseFloat(investQuantity);
+    const pricePerUnit = parseFloat(investPricePerUnit);
+    const fee = parseFloat(investFee);
+
+    if (!investBroker) {
+      setError('Выберите брокера.');
+      return;
+    }
+    if (!investInstrument) {
+      setError('Выберите инструмент.');
+      return;
+    }
+    if (Number.isNaN(quantity) || quantity <= 0) {
+      setError('Количество должно быть больше 0.');
+      return;
+    }
+    if (Number.isNaN(pricePerUnit) || pricePerUnit <= 0) {
+      setError('Цена за единицу должна быть больше 0.');
+      return;
+    }
+    if (Number.isNaN(fee) || fee < 0) {
+      setError('Комиссия должна быть не меньше 0.');
+      return;
+    }
+
+    const position = positions.find((p) => p.id === investInstrument);
+    const brokerAccount = accountsById.get(investBroker);
+
+    if (!position || !brokerAccount) {
+      setError('Позиция или брокерский счёт не найдены.');
+      return;
+    }
+
+    if (position.broker_account_id !== investBroker) {
+      setError('Позиция не принадлежит выбранному брокеру.');
+      return;
+    }
+
+    const brokerCurrency = (brokerAccount.currency || 'EUR') as AccountCurrency;
+    const posCurrency = (position.quote_currency || 'EUR') as AccountCurrency;
+    if (brokerCurrency !== posCurrency) {
+      setError('Валюта позиции не совпадает с валютой брокерского счёта.');
+      return;
+    }
+
+    const curSym = brokerCurrency === 'USD' ? '$' : '€';
+
+    let amount: number;
+    if (side === 'Buy') {
+      amount = quantity * pricePerUnit + fee;
+    } else {
+      amount = quantity * pricePerUnit - fee;
+      if (amount < 0) {
+        setError('При Sell комиссия не может превышать сумму сделки (quantity × price).');
+        return;
+      }
+      if (quantity > position.quantity) {
+        setError(`Количество для продажи (${quantity}) превышает текущую позицию (${position.quantity}).`);
+        return;
+      }
+    }
+
+    const symbol = getPositionSymbol(position);
+    const autoComment =
+      side === 'Buy'
+        ? `Buy ${symbol} x${quantity} @ ${pricePerUnit} ${curSym} (fee ${fee} ${curSym})`
+        : `Sell ${symbol} x${quantity} @ ${pricePerUnit} ${curSym} (fee ${fee} ${curSym})`;
+    const comment = investComment.trim() ? `${autoComment} — ${investComment.trim()}` : autoComment;
+
+    setSubmittingInvest(true);
+
+    try {
+      const newQty = side === 'Buy' ? position.quantity + quantity : position.quantity - quantity;
+
+      const { error: updatePosError } = await supabase
+        .from('positions')
+        .update({ quantity: newQty })
+        .eq('id', position.id)
+        .eq('user_id', userId);
+
+      if (updatePosError) {
+        setError(`Ошибка обновления позиции: ${updatePosError.message}`);
+        setSubmittingInvest(false);
+        return;
+      }
+
+      const kind = side === 'Buy' ? 'expense' : 'income';
+      const direction = side === 'Buy' ? 'out' : 'in';
+
+      const { data: txData, error: txError } = await supabase
+        .from('transactions')
+        .insert({
+          user_id: userId,
+          account_id: investBroker,
+          kind,
+          direction,
+          amount,
+          category_id: null,
+          comment,
+          transfer_id: null,
+        })
+        .select('id')
+        .single();
+
+      if (txError || !txData) {
+        setError(`Ошибка создания операции: ${txError?.message || 'Неизвестная ошибка'}`);
+        setSubmittingInvest(false);
+        return;
+      }
+
+      const { error: tradeError } = await supabase.from('investment_trades').insert({
+        user_id: userId,
+        broker_account_id: investBroker,
+        position_id: position.id,
+        side: side.toLowerCase(),
+        quantity,
+        price_per_unit: pricePerUnit,
+        fee,
+        total_amount: amount,
+        transaction_id: txData.id,
+        comment: investComment.trim() || null,
+      });
+
+      if (tradeError) {
+        setError(`Ошибка записи сделки: ${tradeError.message}`);
+        setSubmittingInvest(false);
+        return;
+      }
+
+      setInvestInstrument('');
+      setInvestQuantity('');
+      setInvestPricePerUnit('');
+      setInvestFee('0');
+      setInvestComment('');
+      setOperationsPage(0);
+      await Promise.all([loadPositions(userId), loadTransactions(userId)]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Неожиданная ошибка');
+    } finally {
+      setSubmittingInvest(false);
+    }
   };
 
   const handleLogout = async () => {
@@ -1523,23 +1672,27 @@ export default function FinanceAppPage() {
                     fee >= 0;
                   const canBuy = valid && investSide === 'Buy';
                   const canSell = valid && investSide === 'Sell';
+                  const sellQtyOk =
+                    investSide !== 'Sell' ||
+                    !investInstrument ||
+                    parseFloat(investQuantity) <= (positions.find((p) => p.id === investInstrument)?.quantity ?? 0);
                   return (
                     <>
                       <button
                         type="button"
-                        onClick={() => {}}
-                        disabled={!canBuy}
+                        onClick={() => handleInvestSubmit('Buy')}
+                        disabled={!canBuy || submittingInvest}
                         className="w-full rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-neutral-400"
                       >
-                        Submit Buy
+                        {submittingInvest ? 'Сохранение...' : 'Submit Buy'}
                       </button>
                       <button
                         type="button"
-                        onClick={() => {}}
-                        disabled={!canSell}
+                        onClick={() => handleInvestSubmit('Sell')}
+                        disabled={!canSell || !sellQtyOk || submittingInvest}
                         className="w-full rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-neutral-400"
                       >
-                        Submit Sell
+                        {submittingInvest ? 'Сохранение...' : 'Submit Sell'}
                       </button>
                     </>
                   );
