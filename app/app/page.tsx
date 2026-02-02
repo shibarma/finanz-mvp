@@ -568,12 +568,21 @@ export default function FinanceAppPage() {
     }
 
     const account = accountsById.get(accountExpense);
-    if (account && account.kind === 'cash') {
+    if (account) {
       const currentBalance = accountBalances.get(accountExpense)?.balance || 0;
       const accountCurrency = getAccountCurrency(account);
-      if (amount > currentBalance) {
-        setError(`Недостаточно средств на счёте "${account.name}". Доступно: ${formatMoney(currentBalance, accountCurrency)}.`);
-        return;
+      if (account.kind === 'cash') {
+        if (amount > currentBalance) {
+          setError(
+            `Недостаточно средств на счёте "${account.name}". Доступно: ${formatMoney(currentBalance, accountCurrency)}.`,
+          );
+          return;
+        }
+      } else if (account.kind === 'broker') {
+        if (amount > currentBalance) {
+          setError('Недостаточно средств на брокерском счёте. Баланс не может быть отрицательным.');
+          return;
+        }
       }
     }
 
@@ -677,14 +686,23 @@ export default function FinanceAppPage() {
 
     setTransferCurrencyError(null);
 
-    // Check cash restriction
+    // Check cash/broker restriction
     const fromAccount = accountsById.get(fromAccountId);
-    if (fromAccount && fromAccount.kind === 'cash') {
+    if (fromAccount) {
       const currentBalance = accountBalances.get(fromAccountId)?.balance || 0;
       const accountCurrency = getAccountCurrency(fromAccount);
-      if (amount > currentBalance) {
-        setError(`Недостаточно средств на счёте "${fromAccount.name}". Доступно: ${formatMoney(currentBalance, accountCurrency)}.`);
-        return;
+      if (fromAccount.kind === 'cash') {
+        if (amount > currentBalance) {
+          setError(
+            `Недостаточно средств на счёте "${fromAccount.name}". Доступно: ${formatMoney(currentBalance, accountCurrency)}.`,
+          );
+          return;
+        }
+      } else if (fromAccount.kind === 'broker') {
+        if (amount > currentBalance) {
+          setError('Недостаточно средств на брокерском счёте. Баланс не может быть отрицательным.');
+          return;
+        }
       }
     }
 
@@ -843,6 +861,15 @@ export default function FinanceAppPage() {
       }
       if (quantity > position.quantity) {
         setError(`Количество для продажи (${quantity}) превышает текущую позицию (${position.quantity}).`);
+        return;
+      }
+    }
+
+    // For Buy, ensure broker account will not go negative
+    if (side === 'Buy') {
+      const currentBalance = accountBalances.get(investBroker)?.balance || 0;
+      if (amount > currentBalance) {
+        setError('Недостаточно средств на брокерском счёте. Баланс не может быть отрицательным.');
         return;
       }
     }

@@ -1,5 +1,13 @@
 'use client';
 
+/**
+ * Supabase schema reference (from app/api/cron/refresh-prices, app/setup, app/app):
+ * - position_price_history: date=captured_date (YYYY-MM-DD), price=price, currency=currency; also price_at, captured_at
+ * - positions: quantity, broker_account_id, instrument_id, quote_currency, last_price, last_price_at
+ * - accounts: id, name, kind, currency; also user_id, starting_balance, warning_threshold, etc.
+ * - instruments: id, user_id, kind, provider, provider_symbol, display_symbol, name, created_at
+ */
+
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { getSession, supabase } from '../../lib/supabaseClient';
@@ -16,13 +24,15 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 
-type AccountKind = 'debit' | 'credit' | 'cash';
+// Schema: accounts.kind includes 'broker'; accounts.currency added (was missing in older backups)
+type AccountKind = 'debit' | 'credit' | 'cash' | 'broker';
 
 interface Account {
   id: string;
   user_id: string;
   name: string;
   kind: AccountKind;
+  currency: string | null; // Schema: accounts.currency (EUR|USD)
   starting_balance: number;
   warning_threshold: number;
   credit_limit: number | null;
@@ -33,12 +43,15 @@ interface Account {
   created_at: string;
 }
 
+// Schema: categories has is_default, sort_order (from supabase_backups)
 interface Category {
   id: string;
   user_id: string;
   kind: 'income' | 'expense';
   name: string;
   created_at: string;
+  is_default?: boolean;
+  sort_order?: number | null;
 }
 
 interface Transaction {
@@ -111,9 +124,10 @@ export default function StatsPage() {
   }, [router]);
 
   const loadAccounts = async () => {
+    // Schema: id, name, kind, currency (accounts table)
     const { data, error: fetchError } = await supabase
       .from('accounts')
-      .select('*')
+      .select('id, user_id, name, kind, currency, starting_balance, warning_threshold, credit_limit, credit_warning_threshold, debit_anchor_account_id, is_default_income, is_default_expense, created_at')
       .order('created_at', { ascending: true });
 
     if (fetchError) {
