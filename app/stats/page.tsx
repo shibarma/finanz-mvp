@@ -67,11 +67,44 @@ interface Transaction {
   created_at: string;
 }
 
+interface PositionRow {
+  id: string;
+  user_id: string;
+  broker_account_id: string;
+  quote_currency: string | null;
+}
+
+interface HistoryRow {
+  user_id: string;
+  position_id: string;
+  price: number;
+  currency: string | null;
+  captured_date: string;
+  quantity_snapshot: number | null;
+}
+
+interface FxRow {
+  user_id: string;
+  base_currency: string;
+  quote_currency: string;
+  rate: number;
+  captured_date: string;
+}
+
 // Helper для форматирования денег в EUR
 const formatMoney = (amount: number): string => {
   return new Intl.NumberFormat('de-DE', {
     style: 'currency',
     currency: 'EUR',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(amount);
+};
+
+const formatMoneyUSD = (amount: number): string => {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(amount);
@@ -101,6 +134,15 @@ export default function StatsPage() {
   const [dateFrom, setDateFrom] = useState<string>('');
   const [dateTo, setDateTo] = useState<string>('');
   const [selectedAccountId, setSelectedAccountId] = useState<string>('');
+  const [selectedBrokerId, setSelectedBrokerId] = useState<string>(''); // '' = All brokers
+
+  // Investment data
+  const [brokers, setBrokers] = useState<Account[]>([]);
+  const [positions, setPositions] = useState<PositionRow[]>([]);
+  const [historyRows, setHistoryRows] = useState<HistoryRow[]>([]);
+  const [fxRows, setFxRows] = useState<FxRow[]>([]);
+  const [investmentLoading, setInvestmentLoading] = useState(false);
+  const [investmentError, setInvestmentError] = useState<string | null>(null);
 
   useEffect(() => {
     const init = async () => {
@@ -133,6 +175,15 @@ export default function StatsPage() {
 
     init();
   }, [router]);
+
+  useEffect(() => {
+    setBrokers(accounts.filter((a) => a.kind === 'broker'));
+  }, [accounts]);
+
+  useEffect(() => {
+    if (!userId || !dateFrom || !dateTo) return;
+    loadInvestmentData(userId, dateFrom, dateTo);
+  }, [userId, dateFrom, dateTo]);
 
   const handleManualRefresh = async () => {
     if (!sessionToken) {
@@ -225,6 +276,55 @@ export default function StatsPage() {
     }
 
     setTransactions((data || []) as Transaction[]);
+  };
+
+  const loadInvestmentData = async (uid: string, fromDate: string, toDate: string) => {
+    setInvestmentLoading(true);
+    setInvestmentError(null);
+
+    try {
+      const [positionsRes, historyRes, fxRes] = await Promise.all([
+        supabase
+          .from('positions')
+          .select('id, user_id, broker_account_id, quote_currency')
+          .eq('user_id', uid),
+        supabase
+          .from('position_price_history')
+          .select('user_id, position_id, price, currency, captured_date, quantity_snapshot')
+          .eq('user_id', uid)
+          .gte('captured_date', fromDate)
+          .lte('captured_date', toDate),
+        supabase
+          .from('fx_rates')
+          .select('user_id, base_currency, quote_currency, rate, captured_date')
+          .eq('user_id', uid)
+          .eq('base_currency', 'USD')
+          .eq('quote_currency', 'EUR')
+          .gte('captured_date', fromDate)
+          .lte('captured_date', toDate),
+      ]);
+
+      if (positionsRes.error) {
+        setInvestmentError(positionsRes.error.message);
+        return;
+      }
+      if (historyRes.error) {
+        setInvestmentError(historyRes.error.message);
+        return;
+      }
+      if (fxRes.error) {
+        setInvestmentError(fxRes.error.message);
+        return;
+      }
+
+      setPositions((positionsRes.data || []) as PositionRow[]);
+      setHistoryRows((historyRes.data || []) as HistoryRow[]);
+      setFxRows((fxRes.data || []) as FxRow[]);
+    } catch (err) {
+      setInvestmentError(err instanceof Error ? err.message : 'Failed to load investment data');
+    } finally {
+      setInvestmentLoading(false);
+    }
   };
 
   const handlePeriodChange = async (from: string, to: string) => {
@@ -500,6 +600,150 @@ export default function StatsPage() {
 
     return top10;
   }, [transactions, categories, dateFrom, dateTo]);
+
+  // Invest chart: All brokers (EUR total) или по выбранному broker (EUR или USD+EUR dual)
+  // Carry forward: для каждой даты D берём последний известный snapshot по каждой позиции (captured_date <= D)
+  const investChartData = useMemo(() => {
+    if (!dateFrom || !dateTo) {
+      return {
+        mode: 'all' as const,
+        data: [] as Array<{ date: string; value: number; valueUsd?: number; valueEur?: number }>,
+        fxNotLoadedWarning: false,
+        investmentWarning: [] as string[],
+        brokerName: null as string | null,
+      };
+    }
+
+    const from = new Date(dateFrom);
+    const to = new Date(dateTo);
+    to.setHours(23, 59, 59, 999);
+
+    const days: string[] = [];
+    const currentDay = new Date(from);
+    while (currentDay <= to) {
+      days.push(currentDay.toISOString().split('T')[0]);
+      currentDay.setDate(currentDay.getDate() + 1);
+    }
+
+    const historyByPosition = new Map<string, HistoryRow[]>();
+    for (const row of historyRows) {
+      const arr = historyByPosition.get(row.position_id) || [];
+      arr.push(row);
+      historyByPosition.set(row.position_id, arr);
+    }
+    for (const arr of historyByPosition.values()) {
+      arr.sort((a, b) => a.captured_date.localeCompare(b.captured_date));
+    }
+
+    const getLatestForPosition = (positionId: string, d: string): HistoryRow | null => {
+      const arr = historyByPosition.get(positionId);
+      if (!arr || arr.length === 0) return null;
+      let lo = 0;
+      let hi = arr.length - 1;
+      if (arr[0].captured_date > d) return null;
+      while (lo < hi) {
+        const mid = Math.ceil((lo + hi) / 2);
+        if (arr[mid].captured_date <= d) lo = mid;
+        else hi = mid - 1;
+      }
+      return arr[lo].captured_date <= d ? arr[lo] : null;
+    };
+
+    const fxSorted = [...fxRows].sort((a, b) => a.captured_date.localeCompare(b.captured_date));
+    const latestFxOverall = fxSorted.length > 0 ? fxSorted[fxSorted.length - 1].rate : null;
+    const getFxRate = (d: string): number | null => {
+      const candidates = fxSorted.filter((f) => f.captured_date <= d);
+      if (candidates.length > 0) return candidates[candidates.length - 1].rate;
+      return latestFxOverall;
+    };
+
+    let fxNotLoadedWarning = false;
+    const investmentWarning: string[] = [];
+    let currencyMismatchSeen = false;
+
+    const broker =
+      selectedBrokerId !== ''
+        ? brokers.find((b) => b.id === selectedBrokerId) || accounts.find((a) => a.id === selectedBrokerId)
+        : null;
+    const brokerName = broker?.name ?? null;
+    const brokerCurrency = (broker?.currency || 'EUR').toUpperCase();
+    const positionsToUse =
+      selectedBrokerId !== ''
+        ? positions.filter((p) => p.broker_account_id === selectedBrokerId)
+        : positions;
+
+    if (selectedBrokerId === '') {
+      const data = days.map((day) => {
+        let total = 0;
+        for (const pos of positionsToUse) {
+          const row = getLatestForPosition(pos.id, day);
+          if (!row) continue;
+          const qty = row.quantity_snapshot ?? 0;
+          const rawValue = row.price * qty;
+          const curr = (row.currency || '').toUpperCase();
+          if (curr === 'EUR') total += rawValue;
+          else if (curr === 'USD') {
+            const rate = getFxRate(day);
+            if (rate === null) fxNotLoadedWarning = true;
+            else total += rawValue * rate;
+          }
+        }
+        return {
+          date: new Date(day).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' }),
+          value: total,
+        };
+      });
+      return { mode: 'all' as const, data, fxNotLoadedWarning, investmentWarning, brokerName: null };
+    }
+
+    if (brokerCurrency === 'EUR') {
+      const data = days.map((day) => {
+        let total = 0;
+        for (const pos of positionsToUse) {
+          const row = getLatestForPosition(pos.id, day);
+          if (!row) continue;
+          const curr = (row.currency || '').toUpperCase();
+          if (curr !== 'EUR') {
+            if (curr) currencyMismatchSeen = true;
+            continue;
+          }
+          const qty = row.quantity_snapshot ?? 0;
+          total += row.price * qty;
+        }
+        return {
+          date: new Date(day).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' }),
+          value: total,
+        };
+      });
+      if (currencyMismatchSeen) investmentWarning.push('Currency mismatch for some positions');
+      return { mode: 'broker_eur' as const, data, fxNotLoadedWarning, investmentWarning, brokerName };
+    }
+
+    const data = days.map((day) => {
+      let valueUsd = 0;
+      for (const pos of positionsToUse) {
+        const row = getLatestForPosition(pos.id, day);
+        if (!row) continue;
+        const curr = (row.currency || '').toUpperCase();
+        if (curr !== 'USD') {
+          if (curr) currencyMismatchSeen = true;
+          continue;
+        }
+        const qty = row.quantity_snapshot ?? 0;
+        valueUsd += row.price * qty;
+      }
+      const rate = getFxRate(day);
+      const valueEur = rate !== null ? valueUsd * rate : 0;
+      if (valueUsd > 0 && rate === null) fxNotLoadedWarning = true;
+      return {
+        date: new Date(day).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' }),
+        valueUsd,
+        valueEur,
+      };
+    });
+    if (currencyMismatchSeen) investmentWarning.push('Currency mismatch for some positions');
+    return { mode: 'broker_usd' as const, data, fxNotLoadedWarning, investmentWarning, brokerName };
+  }, [selectedBrokerId, dateFrom, dateTo, historyRows, fxRows, positions, brokers, accounts]);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -893,6 +1137,159 @@ export default function StatsPage() {
             </>
           ) : (
             <p className="text-sm text-neutral-600">Нет расходов за выбранный период.</p>
+          )}
+        </section>
+
+        {/* Investments */}
+        <section className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">
+          <h2 className="mb-4 text-lg font-semibold text-neutral-900">Investments</h2>
+          {investmentError && (
+            <div className="mb-4 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              {investmentError}
+            </div>
+          )}
+          {investmentLoading && (
+            <p className="mb-4 text-sm text-neutral-600">Загрузка данных инвестиций...</p>
+          )}
+          <div className="mb-4">
+            <label className="block text-xs font-medium text-neutral-700">Broker</label>
+            <select
+              value={selectedBrokerId}
+              onChange={(e) => setSelectedBrokerId(e.target.value)}
+              className="mt-1 rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+            >
+              <option value="">All brokers</option>
+              {brokers.map((acc) => (
+                <option key={acc.id} value={acc.id}>
+                  {acc.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          {investChartData.fxNotLoadedWarning && (
+            <div className="mb-4 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              FX not loaded for some dates
+            </div>
+          )}
+          {investChartData.investmentWarning.length > 0 && (
+            <div className="mb-4 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              {investChartData.investmentWarning[0]}
+            </div>
+          )}
+          {investChartData.mode === 'all' && investChartData.data.length > 0 ? (
+            <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-4">
+              <h3 className="mb-3 text-sm font-semibold text-neutral-900">Invest total (EUR)</h3>
+              <ResponsiveContainer width="100%" height={200}>
+                <LineChart data={investChartData.data}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="date" />
+                  <YAxis
+                    tickFormatter={(v) => formatMoney(v)}
+                    domain={['auto', 'auto']}
+                    width={80}
+                  />
+                  <Tooltip
+                    formatter={(value: number) => formatMoney(value)}
+                    labelStyle={{ color: '#171717' }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="value"
+                    stroke="#171717"
+                    strokeWidth={2}
+                    dot={{ r: 2 }}
+                    name="€"
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          ) : investChartData.mode === 'broker_eur' && investChartData.data.length > 0 ? (
+            <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-4">
+              <h3 className="mb-3 text-sm font-semibold text-neutral-900">
+                Invest (Broker: {investChartData.brokerName})
+              </h3>
+              <ResponsiveContainer width="100%" height={200}>
+                <LineChart data={investChartData.data}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="date" />
+                  <YAxis
+                    tickFormatter={(v) => formatMoney(v)}
+                    domain={['auto', 'auto']}
+                    width={80}
+                  />
+                  <Tooltip
+                    formatter={(value: number) => formatMoney(value)}
+                    labelStyle={{ color: '#171717' }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="value"
+                    stroke="#171717"
+                    strokeWidth={2}
+                    dot={{ r: 2 }}
+                    name="€"
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          ) : investChartData.mode === 'broker_usd' && investChartData.data.length > 0 ? (
+            <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-4">
+              <h3 className="mb-3 text-sm font-semibold text-neutral-900">
+                Invest (Broker: {investChartData.brokerName})
+              </h3>
+              <ResponsiveContainer width="100%" height={200}>
+                <LineChart data={investChartData.data}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="date" />
+                  <YAxis
+                    yAxisId="left"
+                    tickFormatter={(v) => formatMoneyUSD(v)}
+                    domain={['auto', 'auto']}
+                    width={80}
+                  />
+                  <YAxis
+                    yAxisId="right"
+                    orientation="right"
+                    tickFormatter={(v) => formatMoney(v)}
+                    domain={['auto', 'auto']}
+                    width={80}
+                  />
+                  <Tooltip
+                    formatter={(value: number, name: string) =>
+                      name === 'USD' ? formatMoneyUSD(value) : formatMoney(value)
+                    }
+                    labelStyle={{ color: '#171717' }}
+                  />
+                  <Legend />
+                  <Line
+                    yAxisId="left"
+                    type="monotone"
+                    dataKey="valueUsd"
+                    stroke="#2563eb"
+                    strokeWidth={2}
+                    dot={{ r: 2 }}
+                    name="USD"
+                  />
+                  <Line
+                    yAxisId="right"
+                    type="monotone"
+                    dataKey="valueEur"
+                    stroke="#16a34a"
+                    strokeWidth={2}
+                    dot={{ r: 2 }}
+                    name="EUR"
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          ) : selectedBrokerId === '' ? (
+            <div className="flex min-h-[200px] items-center justify-center rounded-lg border border-neutral-200 bg-neutral-50 p-8">
+              <p className="text-sm text-neutral-500">Нет данных за выбранный период</p>
+            </div>
+          ) : (
+            <div className="flex min-h-[200px] items-center justify-center rounded-lg border border-neutral-200 bg-neutral-50 p-8">
+              <p className="text-sm text-neutral-500">Нет данных за выбранный период</p>
+            </div>
           )}
         </section>
       </div>
