@@ -1243,8 +1243,12 @@ export default function SetupPage() {
     }
 
     const quantityNum = Number(positionQuantity);
-    if (!positionQuantity.trim() || Number.isNaN(quantityNum) || quantityNum <= 0) {
-      setPositionFormError('Количество должно быть положительным числом.');
+    if (!positionQuantity.trim() || Number.isNaN(quantityNum)) {
+      setPositionFormError('Введите количество (0 или больше).');
+      return;
+    }
+    if (quantityNum < 0) {
+      setPositionFormError('Количество не может быть отрицательным.');
       return;
     }
 
@@ -1419,8 +1423,12 @@ export default function SetupPage() {
     setPositionEditError(null);
 
     const quantityNum = Number(editPositionQuantity);
-    if (!editPositionQuantity.trim() || Number.isNaN(quantityNum) || quantityNum <= 0) {
-      setPositionEditError('Количество должно быть положительным числом.');
+    if (!editPositionQuantity.trim() || Number.isNaN(quantityNum)) {
+      setPositionEditError('Введите количество (0 или больше).');
+      return;
+    }
+    if (quantityNum < 0) {
+      setPositionEditError('Количество не может быть отрицательным.');
       return;
     }
 

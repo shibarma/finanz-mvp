@@ -206,6 +206,8 @@ export default function FinanceAppPage() {
   const [editTradeComment, setEditTradeComment] = useState('');
   const [savingTradeEdit, setSavingTradeEdit] = useState(false);
   const [tradeEditError, setTradeEditError] = useState<string | null>(null);
+  const [tradeDeleteMessage, setTradeDeleteMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [deletingTradeId, setDeletingTradeId] = useState<string | null>(null);
 
   // Income form
   const [amountIncome, setAmountIncome] = useState('');
@@ -1384,57 +1386,47 @@ export default function FinanceAppPage() {
   };
 
   const handleDeleteInvestmentTrade = async (trade: InvestmentTrade) => {
-    if (!userId) return;
+    if (!userId || !sessionToken) return;
     if (!window.confirm('Вы уверены, что хотите удалить эту сделку?')) return;
 
-    setError(null);
-
-    const position = positions.find((p) => p.id === trade.position_id);
-    if (!position) {
-      setError('Позиция не найдена.');
-      return;
-    }
+    setTradeDeleteMessage(null);
+    setDeletingTradeId(trade.id);
 
     try {
-      const positionDelta = trade.side === 'buy' ? -trade.quantity : trade.quantity;
-      const newPositionQty = position.quantity + positionDelta;
+      const response = await fetch('/api/investments/trades/delete', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${sessionToken}`,
+        },
+        body: JSON.stringify({ trade_id: trade.id }),
+      });
 
-      const { error: posError } = await supabase
-        .from('positions')
-        .update({ quantity: newPositionQty })
-        .eq('id', position.id)
-        .eq('user_id', userId);
+      const data = await response.json();
 
-      if (posError) {
-        setError(`Ошибка обновления позиции: ${posError.message}`);
+      if (!response.ok || !data.ok) {
+        setTradeDeleteMessage({
+          type: 'error',
+          text: data.error || 'Ошибка при удалении сделки',
+        });
         return;
       }
 
-      const { error: txError } = await supabase
-        .from('transactions')
-        .delete()
-        .eq('id', trade.transaction_id)
-        .eq('user_id', userId);
-
-      if (txError) {
-        setError(`Ошибка удаления транзакции: ${txError.message}`);
-        return;
-      }
-
-      const { error: tradeError } = await supabase
-        .from('investment_trades')
-        .delete()
-        .eq('id', trade.id)
-        .eq('user_id', userId);
-
-      if (tradeError) {
-        setError(`Ошибка удаления сделки: ${tradeError.message}`);
-        return;
-      }
-
-      await Promise.all([loadPositions(userId), loadTransactions(userId), loadInvestmentTrades(userId)]);
+      setTradeDeleteMessage({ type: 'success', text: 'Сделка удалена.' });
+      await Promise.all([
+        loadAccounts(),
+        loadPositions(userId),
+        loadTransactions(userId),
+        loadInvestmentTrades(userId),
+      ]);
+      setTimeout(() => setTradeDeleteMessage(null), 3000);
     } catch (err: any) {
-      setError(err.message || 'Ошибка при удалении');
+      setTradeDeleteMessage({
+        type: 'error',
+        text: err.message || 'Ошибка при удалении',
+      });
+    } finally {
+      setDeletingTradeId(null);
     }
   };
 
@@ -2349,6 +2341,17 @@ export default function FinanceAppPage() {
           <h2 className="mb-4 text-lg font-semibold text-neutral-900">
             Последние операции с ценными бумагами
           </h2>
+          {tradeDeleteMessage && (
+            <div
+              className={`mb-4 rounded-lg px-4 py-3 text-sm ${
+                tradeDeleteMessage.type === 'success'
+                  ? 'bg-emerald-50 text-emerald-700'
+                  : 'bg-red-50 text-red-700'
+              }`}
+            >
+              {tradeDeleteMessage.text}
+            </div>
+          )}
           {investmentTrades.length === 0 ? (
             <p className="text-sm text-neutral-600">Нет сделок с ценными бумагами.</p>
           ) : (
@@ -2406,9 +2409,10 @@ export default function FinanceAppPage() {
                       </button>
                       <button
                         onClick={() => handleDeleteInvestmentTrade(trade)}
-                        className="rounded-lg border border-red-300 px-2 py-1 text-xs font-medium text-red-700 transition hover:bg-red-50"
+                        disabled={deletingTradeId === trade.id}
+                        className="rounded-lg border border-red-300 px-2 py-1 text-xs font-medium text-red-700 transition hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed"
                       >
-                        Delete
+                        {deletingTradeId === trade.id ? '…' : 'Delete'}
                       </button>
                     </div>
                   </div>
