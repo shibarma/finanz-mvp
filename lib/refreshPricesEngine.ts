@@ -41,17 +41,6 @@ export interface RefreshPricesSummary {
   errors: JsonValue[];
 }
 
-function getBaseUrl(): string {
-  const vercelUrl = process.env.VERCEL_URL;
-  if (vercelUrl) {
-    if (vercelUrl.startsWith('http://') || vercelUrl.startsWith('https://')) {
-      return vercelUrl;
-    }
-    return `https://${vercelUrl}`;
-  }
-  return 'http://localhost:3000';
-}
-
 function createAdminClient(): SupabaseClient {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -85,7 +74,7 @@ export async function refreshPricesEngine(
   };
 
   const supabaseAdmin = createAdminClient();
-  const baseUrl = getBaseUrl();
+  const finnhubApiKey = process.env.FINNHUB_API_KEY;
 
   // --- A) Load positions for this user ---
   const { data: positions, error: positionsError } = await supabaseAdmin
@@ -141,7 +130,17 @@ export async function refreshPricesEngine(
 
     const symbol = providerSymbol.toUpperCase();
 
-    const quoteUrl = `${baseUrl}/api/market/quote?symbol=${encodeURIComponent(symbol)}`;
+    if (!finnhubApiKey) {
+      summary.skipped += 1;
+      summary.errors.push({
+        position_id: position.id,
+        symbol,
+        reason: 'FINNHUB_API_KEY not configured',
+      });
+      continue;
+    }
+
+    const quoteUrl = `https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(symbol)}&token=${finnhubApiKey}`;
 
     let price: number | null = null;
     let fetchedAt: string | null = null;
@@ -149,39 +148,55 @@ export async function refreshPricesEngine(
     try {
       const quoteResponse = await fetch(quoteUrl);
 
-      let quoteData: any = null;
+      let finnhubData: any = null;
+      let bodyText = '';
       try {
-        quoteData = await quoteResponse.json();
+        bodyText = await quoteResponse.text();
+        finnhubData = JSON.parse(bodyText);
       } catch {
         summary.skipped += 1;
         summary.errors.push({
           position_id: position.id,
           symbol,
-          reason: 'Failed to parse quote response JSON',
           status: quoteResponse.status,
+          reason: 'Failed to parse quote response JSON',
+          body: bodyText.slice(0, 300),
         });
         continue;
       }
 
+      if (!quoteResponse.ok) {
+        const bodyText = JSON.stringify(finnhubData).slice(0, 300);
+        summary.skipped += 1;
+        summary.errors.push({
+          position_id: position.id,
+          symbol,
+          status: quoteResponse.status,
+          reason: 'Quote request failed',
+          body: bodyText,
+        });
+        continue;
+      }
+
+      const rawPrice = finnhubData?.c;
       if (
-        !quoteResponse.ok ||
-        !quoteData?.ok ||
-        typeof quoteData.price !== 'number' ||
-        !Number.isFinite(quoteData.price)
+        typeof rawPrice !== 'number' ||
+        !Number.isFinite(rawPrice) ||
+        rawPrice <= 0
       ) {
         summary.skipped += 1;
         summary.errors.push({
           position_id: position.id,
           symbol,
-          reason: 'Quote request failed or returned invalid price',
           status: quoteResponse.status,
-          body: quoteData,
+          reason: 'Invalid or missing price (finnhubData.c)',
+          body: JSON.stringify(finnhubData).slice(0, 300),
         });
         continue;
       }
 
-      price = quoteData.price;
-      fetchedAt = (quoteData.fetched_at as string | undefined) || new Date().toISOString();
+      price = rawPrice;
+      fetchedAt = new Date().toISOString();
     } catch (err) {
       summary.skipped += 1;
       summary.errors.push({
@@ -279,65 +294,80 @@ export async function refreshPricesEngine(
       // No USD accounts – FX not needed
       summary.fxSkipped = true;
     } else {
-      const fxResponse = await fetch(`${baseUrl}/api/market/fx`);
+      const frankfurterUrl = 'https://api.frankfurter.dev/v1/latest?base=USD';
+      const fxResponse = await fetch(frankfurterUrl);
+
       let fxData: any = null;
+      let fxBodyText = '';
       try {
-        fxData = await fxResponse.json();
+        fxBodyText = await fxResponse.text();
+        fxData = JSON.parse(fxBodyText);
       } catch {
         summary.fxSkipped = true;
         summary.errors.push({
           scope: 'fx_rates',
-          reason: 'Failed to parse FX API response JSON',
           status: fxResponse.status,
+          reason: 'Failed to parse FX API response JSON',
+          body: fxBodyText.slice(0, 300),
         });
-        fxData = null;
       }
 
-      if (
-        fxResponse.ok &&
-        fxData?.ok &&
-        typeof fxData.rate === 'number' &&
-        Number.isFinite(fxData.rate) &&
-        fxData.rate > 0
-      ) {
-        const nowIso = new Date().toISOString();
-        const capturedDate = nowIso.slice(0, 10); // YYYY-MM-DD
-
-        const { error: fxUpsertError } = await supabaseAdmin
-          .from('fx_rates')
-          .upsert(
-            {
-              user_id: userId,
-              base_currency: 'USD',
-              quote_currency: 'EUR',
-              rate: fxData.rate,
-              fetched_at: nowIso,
-              captured_date: capturedDate,
-            },
-            {
-              onConflict: 'user_id,base_currency,quote_currency,captured_date',
-            },
-          );
-
-        if (fxUpsertError) {
+      if (fxData !== null) {
+        if (!fxResponse.ok) {
           summary.fxSkipped = true;
           summary.errors.push({
             scope: 'fx_rates',
-            user_id: userId,
-            reason: 'Failed to upsert FX rate for user',
-            error: fxUpsertError.message,
+            status: fxResponse.status,
+            reason: 'Frankfurter API request failed',
+            body: JSON.stringify(fxData).slice(0, 300),
           });
         } else {
-          summary.fxUpdated = true;
+          const rate = fxData.rates?.EUR;
+          if (
+            typeof rate !== 'number' ||
+            !Number.isFinite(rate) ||
+            rate <= 0
+          ) {
+            summary.fxSkipped = true;
+            summary.errors.push({
+              scope: 'fx_rates',
+              status: fxResponse.status,
+              reason: 'Invalid or missing rates.EUR',
+              body: JSON.stringify(fxData).slice(0, 300),
+            });
+          } else {
+            const nowIso = new Date().toISOString();
+            const capturedDate = nowIso.slice(0, 10); // YYYY-MM-DD
+
+            const { error: fxUpsertError } = await supabaseAdmin
+              .from('fx_rates')
+              .upsert(
+                {
+                  user_id: userId,
+                  base_currency: 'USD',
+                  quote_currency: 'EUR',
+                  rate,
+                  fetched_at: nowIso,
+                  captured_date: capturedDate,
+                },
+                {
+                  onConflict: 'user_id,base_currency,quote_currency,captured_date',
+                },
+              );
+
+            if (fxUpsertError) {
+              summary.fxSkipped = true;
+              summary.errors.push({
+                scope: 'fx_rates',
+                user_id: userId,
+                reason: 'Failed to upsert FX rate for user',
+                error: fxUpsertError.message,
+              });
+            } else {
+              summary.fxUpdated = true;
+            }
+          }
         }
-      } else {
-        summary.fxSkipped = true;
-        summary.errors.push({
-          scope: 'fx_rates',
-          reason: 'FX API returned error or invalid rate',
-          status: fxResponse.status,
-          body: fxData,
-        });
       }
     }
   } catch (err) {
