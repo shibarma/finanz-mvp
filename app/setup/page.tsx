@@ -197,13 +197,16 @@ export default function SetupPage() {
     setFxError(null);
 
     try {
-      // First, fetch existing FX rate from fx_rates table
+      const todayStr = new Date().toISOString().slice(0, 10);
+
+      // First, fetch existing FX rate from fx_rates table (today's captured_date)
       const { data: existingFxRate, error: fetchError } = await supabase
         .from('fx_rates')
         .select('rate, fetched_at')
         .eq('user_id', userId)
         .eq('base_currency', 'USD')
         .eq('quote_currency', 'EUR')
+        .eq('captured_date', todayStr)
         .single();
 
       let refreshNeeded = false;
@@ -253,7 +256,7 @@ export default function SetupPage() {
       }
 
       // Upsert into fx_rates table
-      const now = new Date().toISOString();
+      const nowIso = new Date().toISOString();
       const { error: upsertError } = await supabase
         .from('fx_rates')
         .upsert(
@@ -262,15 +265,16 @@ export default function SetupPage() {
             base_currency: 'USD',
             quote_currency: 'EUR',
             rate: data.rate,
-            fetched_at: now,
+            fetched_at: nowIso,
+            captured_date: todayStr,
           },
           {
-            onConflict: 'user_id,base_currency,quote_currency',
+            onConflict: 'user_id,base_currency,quote_currency,captured_date',
           }
         );
 
       if (upsertError) {
-        console.error('Error upserting FX rate:', upsertError);
+        console.error('Error upserting FX rate:', { message: upsertError?.message, details: upsertError?.details, code: upsertError?.code, hint: upsertError?.hint });
         setFxError('Failed to save FX rate');
         // Use existing rate if available, otherwise use the fetched rate
         setFxRate(existingFxRate?.rate || data.rate);
@@ -285,6 +289,7 @@ export default function SetupPage() {
         .eq('user_id', userId)
         .eq('base_currency', 'USD')
         .eq('quote_currency', 'EUR')
+        .eq('captured_date', todayStr)
         .single();
 
       if (refetchError || !updatedFxRate) {
