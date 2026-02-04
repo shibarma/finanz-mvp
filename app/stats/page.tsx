@@ -523,16 +523,22 @@ export default function StatsPage() {
 
   // График баланса по дням для выбранного счёта
   const accountBalanceChart = useMemo(() => {
-    if (!selectedAccountId || !dateFrom || !dateTo) return [];
+    if (!selectedAccountId || !dateFrom || !dateTo) {
+      return { data: [] as Array<{ date: string; balance?: number; balance_usd?: number; balance_eur?: number | null }>, fxWarning: false, isUsd: false };
+    }
 
     const account = accounts.find((a) => a.id === selectedAccountId);
-    if (!account) return [];
+    if (!account) {
+      return { data: [], fxWarning: false, isUsd: false };
+    }
+
+    const accountCurrency = (account.currency || 'EUR').toUpperCase();
+    const isUsd = accountCurrency === 'USD';
 
     const from = new Date(dateFrom);
     const to = new Date(dateTo);
     to.setHours(23, 59, 59, 999);
 
-    // Создаём массив всех дней в периоде
     const days: string[] = [];
     const currentDay = new Date(from);
     while (currentDay <= to) {
@@ -540,20 +546,49 @@ export default function StatsPage() {
       currentDay.setDate(currentDay.getDate() + 1);
     }
 
-    // Используем уже вычисленные балансы
     const dailyBalances = allAccountsDailyBalances.get(selectedAccountId);
-    if (!dailyBalances) return [];
+    if (!dailyBalances) {
+      return { data: [], fxWarning: false, isUsd };
+    }
 
+    if (!isUsd) {
+      const chartData = days.map((day) => {
+        const balance = dailyBalances.get(day) || 0;
+        return {
+          date: new Date(day).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' }),
+          balance,
+        };
+      });
+      return { data: chartData, fxWarning: false, isUsd: false };
+    }
+
+    const fxSorted = [...fxRows].sort((a, b) => a.captured_date.localeCompare(b.captured_date));
+    const latestFxOverall = fxSorted.length > 0 ? fxSorted[fxSorted.length - 1].rate : null;
+    const getFxRate = (d: string): number | null => {
+      const candidates = fxSorted.filter((f) => f.captured_date <= d);
+      if (candidates.length > 0) return candidates[candidates.length - 1].rate;
+      return latestFxOverall;
+    };
+
+    let fxWarning = false;
     const chartData = days.map((day) => {
-      const balance = dailyBalances.get(day) || 0;
+      const balanceUsd = dailyBalances.get(day) || 0;
+      const rate = getFxRate(day);
+      let balanceEur: number | null;
+      if (rate !== null) {
+        balanceEur = balanceUsd * rate;
+      } else {
+        fxWarning = true;
+        balanceEur = latestFxOverall !== null ? balanceUsd * latestFxOverall : null;
+      }
       return {
         date: new Date(day).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' }),
-        balance,
+        balance_usd: balanceUsd,
+        balance_eur: balanceEur,
       };
     });
-
-    return chartData;
-  }, [selectedAccountId, allAccountsDailyBalances, dateFrom, dateTo]);
+    return { data: chartData, fxWarning, isUsd: true };
+  }, [selectedAccountId, allAccountsDailyBalances, dateFrom, dateTo, accounts, fxRows]);
 
   // Расходы по категориям
   const expensesByCategory = useMemo(() => {
@@ -1057,30 +1092,86 @@ export default function StatsPage() {
             )}
           </div>
 
-          {accountBalanceChart.length > 0 ? (
-            <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={accountBalanceChart}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="date" />
-                <YAxis
-                  tickFormatter={(value) => formatMoney(value)}
-                  domain={['auto', 'auto']}
-                />
-                <Tooltip
-                  formatter={(value: number) => formatMoney(value)}
-                  labelStyle={{ color: '#171717' }}
-                />
-                <Legend />
-                <Line
-                  type="monotone"
-                  dataKey="balance"
-                  stroke="#171717"
-                  strokeWidth={2}
-                  name="Баланс"
-                  dot={{ r: 3 }}
-                />
-              </LineChart>
-            </ResponsiveContainer>
+          {accountBalanceChart.fxWarning && (
+            <div className="mb-4 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              FX not loaded for some dates
+            </div>
+          )}
+
+          {accountBalanceChart.data.length > 0 ? (
+            accountBalanceChart.isUsd ? (
+              <ResponsiveContainer width="100%" height={300}>
+                <LineChart data={accountBalanceChart.data}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="date" />
+                  <YAxis
+                    yAxisId="left"
+                    tickFormatter={(v) => formatMoneyUSD(v)}
+                    domain={['auto', 'auto']}
+                    width={80}
+                  />
+                  <YAxis
+                    yAxisId="right"
+                    orientation="right"
+                    tickFormatter={(v) => formatMoney(v)}
+                    domain={['auto', 'auto']}
+                    width={80}
+                  />
+                  <Tooltip
+                    formatter={(value: number | null, name: string) => {
+                      if (value == null || !Number.isFinite(value)) return '—';
+                      return name === 'Баланс (USD)' ? formatMoneyUSD(value) : formatMoney(value);
+                    }}
+                    labelStyle={{ color: '#171717' }}
+                  />
+                  <Legend />
+                  <Line
+                    yAxisId="left"
+                    type="monotone"
+                    dataKey="balance_usd"
+                    stroke="#2563eb"
+                    strokeWidth={2}
+                    name="Баланс (USD)"
+                    dot={{ r: 3 }}
+                    connectNulls={false}
+                  />
+                  <Line
+                    yAxisId="right"
+                    type="monotone"
+                    dataKey="balance_eur"
+                    stroke="#16a34a"
+                    strokeWidth={2}
+                    name="Баланс (EUR)"
+                    dot={{ r: 3 }}
+                    connectNulls={false}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            ) : (
+              <ResponsiveContainer width="100%" height={300}>
+                <LineChart data={accountBalanceChart.data}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="date" />
+                  <YAxis
+                    tickFormatter={(value) => formatMoney(value)}
+                    domain={['auto', 'auto']}
+                  />
+                  <Tooltip
+                    formatter={(value: number) => formatMoney(value)}
+                    labelStyle={{ color: '#171717' }}
+                  />
+                  <Legend />
+                  <Line
+                    type="monotone"
+                    dataKey="balance"
+                    stroke="#171717"
+                    strokeWidth={2}
+                    name="Баланс"
+                    dot={{ r: 3 }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            )
           ) : (
             <p className="text-sm text-neutral-600">Нет данных для отображения.</p>
           )}
