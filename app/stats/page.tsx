@@ -1179,9 +1179,9 @@ export default function StatsPage() {
                     width={80}
                   />
                   <Tooltip
-                    formatter={(value: number | null, name: string) => {
-                      if (value == null || !Number.isFinite(value)) return '—';
-                      return name === 'Баланс (USD)' ? formatMoneyUSD(value) : formatMoney(value);
+                    formatter={(value, name) => {
+                      if (value == null || !Number.isFinite(Number(value))) return '—';
+                      return name === 'Баланс (USD)' ? formatMoneyUSD(Number(value)) : formatMoney(Number(value));
                     }}
                     labelStyle={{ color: '#171717' }}
                   />
