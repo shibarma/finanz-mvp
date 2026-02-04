@@ -53,6 +53,21 @@ interface Transfer {
   created_at: string;
 }
 
+interface InvestmentTrade {
+  id: string;
+  user_id: string;
+  broker_account_id: string;
+  position_id: string;
+  transaction_id: string;
+  side: string;
+  quantity: number;
+  price_per_unit: number;
+  fee: number;
+  total_amount: number;
+  comment: string | null;
+  created_at: string;
+}
+
 interface Category {
   id: string;
   user_id: string;
@@ -72,6 +87,7 @@ interface Transaction {
   comment: string | null;
   transfer_id: string | null;
   created_at: string;
+  is_investment?: boolean;
 }
 
 type AccountBalance = {
@@ -138,6 +154,7 @@ export default function FinanceAppPage() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [transfers, setTransfers] = useState<Transfer[]>([]);
   const [positions, setPositions] = useState<PositionMain[]>([]);
+  const [investmentTrades, setInvestmentTrades] = useState<InvestmentTrade[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -180,6 +197,15 @@ export default function FinanceAppPage() {
   const [editCategory, setEditCategory] = useState('');
   const [editComment, setEditComment] = useState('');
   const [savingEdit, setSavingEdit] = useState(false);
+
+  // Редактирование сделки с ценными бумагами
+  const [editingTradeId, setEditingTradeId] = useState<string | null>(null);
+  const [editTradeQuantity, setEditTradeQuantity] = useState('');
+  const [editTradePrice, setEditTradePrice] = useState('');
+  const [editTradeFee, setEditTradeFee] = useState('');
+  const [editTradeComment, setEditTradeComment] = useState('');
+  const [savingTradeEdit, setSavingTradeEdit] = useState(false);
+  const [tradeEditError, setTradeEditError] = useState<string | null>(null);
 
   // Income form
   const [amountIncome, setAmountIncome] = useState('');
@@ -278,6 +304,7 @@ export default function FinanceAppPage() {
         loadTransactions(session.user.id),
         loadTransfers(session.user.id),
         loadPositions(session.user.id),
+        loadInvestmentTrades(session.user.id),
       ]);
     };
 
@@ -436,6 +463,22 @@ export default function FinanceAppPage() {
     }
 
     setPositions((data || []) as PositionMain[]);
+  };
+
+  const loadInvestmentTrades = async (uid: string) => {
+    const { data, error: fetchError } = await supabase
+      .from('investment_trades')
+      .select('id, user_id, broker_account_id, position_id, transaction_id, side, quantity, price_per_unit, fee, total_amount, comment, created_at')
+      .eq('user_id', uid)
+      .order('created_at', { ascending: false })
+      .limit(20);
+
+    if (fetchError) {
+      setError(fetchError.message);
+      return;
+    }
+
+    setInvestmentTrades((data || []) as InvestmentTrade[]);
   };
 
   // Calculate balances for each account
@@ -966,6 +1009,7 @@ export default function FinanceAppPage() {
           category_id: null,
           comment,
           transfer_id: null,
+          is_investment: true,
         })
         .select('id')
         .single();
@@ -1001,7 +1045,7 @@ export default function FinanceAppPage() {
       setInvestFee('0');
       setInvestComment('');
       setOperationsPage(0);
-      await Promise.all([loadPositions(userId), loadTransactions(userId)]);
+      await Promise.all([loadPositions(userId), loadTransactions(userId), loadInvestmentTrades(userId)]);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Неожиданная ошибка');
     } finally {
@@ -1207,6 +1251,188 @@ export default function FinanceAppPage() {
       // Обновляем данные
       await Promise.all([loadTransactions(userId), loadTransfers(userId)]);
       setOperationsPage(0);
+    } catch (err: any) {
+      setError(err.message || 'Ошибка при удалении');
+    }
+  };
+
+  const handleEditInvestmentTrade = (trade: InvestmentTrade) => {
+    setEditingTradeId(trade.id);
+    setEditTradeQuantity(trade.quantity.toString());
+    setEditTradePrice(trade.price_per_unit.toString());
+    setEditTradeFee(trade.fee.toString());
+    setEditTradeComment(trade.comment || '');
+    setTradeEditError(null);
+  };
+
+  const handleCancelEditTrade = () => {
+    setEditingTradeId(null);
+    setEditTradeQuantity('');
+    setEditTradePrice('');
+    setEditTradeFee('');
+    setEditTradeComment('');
+    setTradeEditError(null);
+  };
+
+  const handleSaveEditTrade = async () => {
+    if (!userId || !editingTradeId) return;
+
+    const trade = investmentTrades.find((t) => t.id === editingTradeId);
+    if (!trade) return;
+
+    const quantity = parseFloat(editTradeQuantity);
+    const pricePerUnit = parseFloat(editTradePrice);
+    const fee = parseFloat(editTradeFee);
+
+    if (Number.isNaN(quantity) || quantity <= 0) {
+      setTradeEditError('Количество должно быть больше 0.');
+      return;
+    }
+    if (Number.isNaN(pricePerUnit) || pricePerUnit <= 0) {
+      setTradeEditError('Цена за единицу должна быть больше 0.');
+      return;
+    }
+    if (Number.isNaN(fee) || fee < 0) {
+      setTradeEditError('Комиссия должна быть не меньше 0.');
+      return;
+    }
+
+    const position = positions.find((p) => p.id === trade.position_id);
+    const brokerAccount = accountsById.get(trade.broker_account_id);
+    if (!position || !brokerAccount) {
+      setTradeEditError('Позиция или брокерский счёт не найдены.');
+      return;
+    }
+
+    const amount =
+      trade.side === 'buy' ? quantity * pricePerUnit + fee : quantity * pricePerUnit - fee;
+    if (amount < 0) {
+      setTradeEditError('При Sell комиссия не может превышать сумму сделки.');
+      return;
+    }
+
+    if (trade.side === 'sell' && quantity > position.quantity) {
+      setTradeEditError(`Количество для продажи (${quantity}) превышает текущую позицию (${position.quantity}).`);
+      return;
+    }
+
+    if (trade.side === 'buy') {
+      const currentBalance = accountBalances.get(trade.broker_account_id)?.balance || 0;
+      if (amount > currentBalance + trade.total_amount) {
+        setTradeEditError('Недостаточно средств на брокерском счёте.');
+        return;
+      }
+    }
+
+    setTradeEditError(null);
+    setSavingTradeEdit(true);
+
+    try {
+      const positionDelta =
+        trade.side === 'buy' ? quantity - trade.quantity : trade.quantity - quantity;
+      const newPositionQty = position.quantity + positionDelta;
+
+      const { error: posError } = await supabase
+        .from('positions')
+        .update({ quantity: newPositionQty })
+        .eq('id', position.id)
+        .eq('user_id', userId);
+
+      if (posError) {
+        setTradeEditError(`Ошибка обновления позиции: ${posError.message}`);
+        setSavingTradeEdit(false);
+        return;
+      }
+
+      const { error: txError } = await supabase
+        .from('transactions')
+        .update({ amount, comment: editTradeComment.trim() || null })
+        .eq('id', trade.transaction_id)
+        .eq('user_id', userId);
+
+      if (txError) {
+        setTradeEditError(`Ошибка обновления транзакции: ${txError.message}`);
+        setSavingTradeEdit(false);
+        return;
+      }
+
+      const { error: tradeError } = await supabase
+        .from('investment_trades')
+        .update({
+          quantity,
+          price_per_unit: pricePerUnit,
+          fee,
+          total_amount: amount,
+          comment: editTradeComment.trim() || null,
+        })
+        .eq('id', trade.id)
+        .eq('user_id', userId);
+
+      if (tradeError) {
+        setTradeEditError(`Ошибка обновления сделки: ${tradeError.message}`);
+        setSavingTradeEdit(false);
+        return;
+      }
+
+      await Promise.all([loadPositions(userId), loadTransactions(userId), loadInvestmentTrades(userId)]);
+      handleCancelEditTrade();
+    } catch (err: any) {
+      setTradeEditError(err.message || 'Ошибка при сохранении');
+    } finally {
+      setSavingTradeEdit(false);
+    }
+  };
+
+  const handleDeleteInvestmentTrade = async (trade: InvestmentTrade) => {
+    if (!userId) return;
+    if (!window.confirm('Вы уверены, что хотите удалить эту сделку?')) return;
+
+    setError(null);
+
+    const position = positions.find((p) => p.id === trade.position_id);
+    if (!position) {
+      setError('Позиция не найдена.');
+      return;
+    }
+
+    try {
+      const positionDelta = trade.side === 'buy' ? -trade.quantity : trade.quantity;
+      const newPositionQty = position.quantity + positionDelta;
+
+      const { error: posError } = await supabase
+        .from('positions')
+        .update({ quantity: newPositionQty })
+        .eq('id', position.id)
+        .eq('user_id', userId);
+
+      if (posError) {
+        setError(`Ошибка обновления позиции: ${posError.message}`);
+        return;
+      }
+
+      const { error: txError } = await supabase
+        .from('transactions')
+        .delete()
+        .eq('id', trade.transaction_id)
+        .eq('user_id', userId);
+
+      if (txError) {
+        setError(`Ошибка удаления транзакции: ${txError.message}`);
+        return;
+      }
+
+      const { error: tradeError } = await supabase
+        .from('investment_trades')
+        .delete()
+        .eq('id', trade.id)
+        .eq('user_id', userId);
+
+      if (tradeError) {
+        setError(`Ошибка удаления сделки: ${tradeError.message}`);
+        return;
+      }
+
+      await Promise.all([loadPositions(userId), loadTransactions(userId), loadInvestmentTrades(userId)]);
     } catch (err: any) {
       setError(err.message || 'Ошибка при удалении');
     }
@@ -1938,7 +2164,7 @@ export default function FinanceAppPage() {
                 onClick={() => setOperationsPage((p) => p + 1)}
                 disabled={
                   (operationsPage + 1) * OPERATIONS_PER_PAGE >=
-                  transfers.length + transactions.filter((t) => t.kind !== 'transfer').length
+                  transfers.length + transactions.filter((t) => t.kind !== 'transfer' && !t.is_investment).length
                 }
                 className="rounded-lg border border-neutral-300 px-3 py-1 text-xs font-medium text-neutral-800 transition hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-50"
               >
@@ -1981,9 +2207,9 @@ export default function FinanceAppPage() {
               });
             });
 
-            // Добавляем income/expense transactions (исключаем transfer)
+            // Добавляем income/expense transactions (исключаем transfer и investment)
             transactions
-              .filter((t) => t.kind !== 'transfer')
+              .filter((t) => t.kind !== 'transfer' && !t.is_investment)
               .forEach((tx) => {
                 const account = accountsById.get(tx.account_id);
                 const category = categories.find((c) => c.id === tx.category_id);
@@ -2117,6 +2343,177 @@ export default function FinanceAppPage() {
             );
           })()}
         </section>
+
+        {/* Последние операции с ценными бумагами */}
+        <section className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">
+          <h2 className="mb-4 text-lg font-semibold text-neutral-900">
+            Последние операции с ценными бумагами
+          </h2>
+          {investmentTrades.length === 0 ? (
+            <p className="text-sm text-neutral-600">Нет сделок с ценными бумагами.</p>
+          ) : (
+            <div className="space-y-2">
+              {investmentTrades.map((trade) => {
+                const brokerAccount = accountsById.get(trade.broker_account_id);
+                const position = positions.find((p) => p.id === trade.position_id);
+                const symbol = position ? getPositionSymbol(position) : '—';
+                const currency = (brokerAccount?.currency || 'EUR') as AccountCurrency;
+                const curSym = getCurrencySymbol(currency);
+                return (
+                  <div
+                    key={trade.id}
+                    className="flex items-center justify-between rounded-lg border border-neutral-200 px-4 py-3"
+                  >
+                    <div className="flex items-center gap-3">
+                      <span
+                        className={`flex h-9 w-9 items-center justify-center rounded-full text-sm font-semibold ${
+                          trade.side === 'buy' ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'
+                        }`}
+                      >
+                        {trade.side === 'buy' ? 'B' : 'S'}
+                      </span>
+                      <div>
+                        <p className="text-sm font-medium text-neutral-900">
+                          {trade.side === 'buy' ? 'Buy' : 'Sell'} {symbol} × {trade.quantity}
+                        </p>
+                        <div className="text-xs text-neutral-600">
+                          {brokerAccount?.name ?? '—'} • {trade.price_per_unit} {curSym}/ед.
+                          {trade.fee > 0 && ` • fee ${trade.fee} ${curSym}`}
+                        </div>
+                        <p className="text-xs text-neutral-500">
+                          {new Date(trade.created_at).toLocaleString('ru-RU', {
+                            day: '2-digit',
+                            month: '2-digit',
+                            year: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </p>
+                        {trade.comment && (
+                          <p className="mt-1 text-xs text-neutral-500">{trade.comment}</p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <p className="text-base font-semibold text-neutral-900">
+                        {formatMoney(trade.total_amount, currency)}
+                      </p>
+                      <button
+                        onClick={() => handleEditInvestmentTrade(trade)}
+                        className="rounded-lg border border-neutral-300 px-2 py-1 text-xs font-medium text-neutral-700 transition hover:bg-neutral-100"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => handleDeleteInvestmentTrade(trade)}
+                        className="rounded-lg border border-red-300 px-2 py-1 text-xs font-medium text-red-700 transition hover:bg-red-50"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
+
+        {/* Модальное окно редактирования сделки */}
+        {editingTradeId && (() => {
+          const trade = investmentTrades.find((t) => t.id === editingTradeId);
+          if (!trade) return null;
+          const position = positions.find((p) => p.id === trade.position_id);
+          const symbol = position ? getPositionSymbol(position) : '—';
+          const brokerAccount = accountsById.get(trade.broker_account_id);
+          const curSym = getCurrencySymbol(brokerAccount?.currency ?? null);
+          return (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+              <div className="w-full max-w-md rounded-2xl border border-neutral-200 bg-white p-6 shadow-lg">
+                <h3 className="mb-4 text-lg font-semibold text-neutral-900">
+                  Редактировать сделку {trade.side === 'buy' ? 'Buy' : 'Sell'} {symbol}
+                </h3>
+
+                {tradeEditError && (
+                  <div className="mb-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">
+                    {tradeEditError}
+                  </div>
+                )}
+
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-medium text-neutral-700">Количество</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="any"
+                      value={editTradeQuantity}
+                      onChange={(e) => setEditTradeQuantity(e.target.value)}
+                      className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                      placeholder="0"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-neutral-700">
+                      Цена за единицу ({curSym})
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="any"
+                      value={editTradePrice}
+                      onChange={(e) => setEditTradePrice(e.target.value)}
+                      className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                      placeholder="0"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-neutral-700">
+                      Комиссия ({curSym})
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="any"
+                      value={editTradeFee}
+                      onChange={(e) => setEditTradeFee(e.target.value)}
+                      className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                      placeholder="0"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-neutral-700">
+                      Комментарий (опционально)
+                    </label>
+                    <input
+                      type="text"
+                      value={editTradeComment}
+                      onChange={(e) => setEditTradeComment(e.target.value)}
+                      className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                      placeholder="Комментарий"
+                    />
+                  </div>
+                </div>
+
+                <div className="mt-6 flex gap-3">
+                  <button
+                    onClick={handleCancelEditTrade}
+                    disabled={savingTradeEdit}
+                    className="flex-1 rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-800 transition hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Отмена
+                  </button>
+                  <button
+                    onClick={handleSaveEditTrade}
+                    disabled={savingTradeEdit}
+                    className="flex-1 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-neutral-400"
+                  >
+                    {savingTradeEdit ? 'Сохранение...' : 'Сохранить'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Модальное окно редактирования */}
         {editingOperation && (

@@ -65,6 +65,7 @@ interface Transaction {
   comment: string | null;
   transfer_id: string | null;
   created_at: string;
+  is_investment?: boolean;
 }
 
 interface PositionRow {
@@ -358,7 +359,7 @@ export default function StatsPage() {
     handlePeriodChange(from.toISOString().split('T')[0], today.toISOString().split('T')[0]);
   };
 
-  // Итоги за период (без transfers)
+  // Итоги за период (без transfers, без investment)
   const periodSummary = useMemo(() => {
     if (!dateFrom || !dateTo) return { income: 0, expense: 0, net: 0 };
 
@@ -370,6 +371,7 @@ export default function StatsPage() {
     let expense = 0;
 
     transactions.forEach((tx) => {
+      if (tx.is_investment) return;
       const txDate = new Date(tx.created_at);
       if (txDate >= from && txDate <= to && tx.kind !== 'transfer') {
         if (tx.kind === 'income') {
@@ -384,6 +386,33 @@ export default function StatsPage() {
       income,
       expense,
       net: income - expense,
+    };
+  }, [transactions, dateFrom, dateTo]);
+
+  // Итоги за период — инвестиционные сделки (cashflow)
+  const investmentPeriodSummary = useMemo(() => {
+    if (!dateFrom || !dateTo) return { totalBuy: 0, totalSell: 0, netCashflow: 0 };
+
+    const from = new Date(dateFrom);
+    const to = new Date(dateTo);
+    to.setHours(23, 59, 59, 999);
+
+    let totalBuy = 0;
+    let totalSell = 0;
+
+    transactions.forEach((tx) => {
+      if (!tx.is_investment) return;
+      const txDate = new Date(tx.created_at);
+      if (txDate >= from && txDate <= to) {
+        if (tx.kind === 'expense') totalBuy += tx.amount;
+        else if (tx.kind === 'income') totalSell += tx.amount;
+      }
+    });
+
+    return {
+      totalBuy,
+      totalSell,
+      netCashflow: totalSell - totalBuy,
     };
   }, [transactions, dateFrom, dateTo]);
 
@@ -601,6 +630,7 @@ export default function StatsPage() {
     const categoryMap = new Map<string, number>();
 
     transactions.forEach((tx) => {
+      if (tx.is_investment) return;
       const txDate = new Date(tx.created_at);
       if (txDate >= from && txDate <= to && tx.kind === 'expense') {
         const categoryId = tx.category_id || 'no-category';
@@ -933,6 +963,37 @@ export default function StatsPage() {
                 }`}
               >
                 {formatMoney(periodSummary.net)}
+              </p>
+            </div>
+          </div>
+        </section>
+
+        {/* Итоги за период — инвестиционные сделки (cashflow) */}
+        <section className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">
+          <h2 className="mb-4 text-lg font-semibold text-neutral-900">
+            Итоги за период — инвестиционные сделки (cashflow)
+          </h2>
+          <div className="grid gap-4 md:grid-cols-3">
+            <div>
+              <p className="text-xs text-neutral-600">Total Buy</p>
+              <p className="text-2xl font-semibold text-red-700">
+                {formatMoney(investmentPeriodSummary.totalBuy)}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-neutral-600">Total Sell</p>
+              <p className="text-2xl font-semibold text-emerald-700">
+                {formatMoney(investmentPeriodSummary.totalSell)}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-neutral-600">Net cashflow</p>
+              <p
+                className={`text-2xl font-semibold ${
+                  investmentPeriodSummary.netCashflow >= 0 ? 'text-emerald-700' : 'text-red-700'
+                }`}
+              >
+                {formatMoney(investmentPeriodSummary.netCashflow)}
               </p>
             </div>
           </div>
