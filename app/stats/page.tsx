@@ -81,12 +81,21 @@ export default function StatsPage() {
   const router = useRouter();
   const [sessionChecked, setSessionChecked] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
+  const [sessionToken, setSessionToken] = useState<string | null>(null);
 
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [refreshLoading, setRefreshLoading] = useState(false);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+  const [refreshSummary, setRefreshSummary] = useState<{
+    processed: number;
+    updated: number;
+    skipped: number;
+    errors: number;
+  } | null>(null);
 
   // Период
   const [dateFrom, setDateFrom] = useState<string>('');
@@ -103,6 +112,8 @@ export default function StatsPage() {
       }
 
       setUserId(session.user.id);
+       const accessToken = (session as { access_token?: string }).access_token;
+       setSessionToken(accessToken || null);
       setSessionChecked(true);
 
       // Установить период по умолчанию: последние 30 дней
@@ -122,6 +133,45 @@ export default function StatsPage() {
 
     init();
   }, [router]);
+
+  const handleManualRefresh = async () => {
+    if (!sessionToken) {
+      setRefreshError('Session token is missing. Please re-login.');
+      return;
+    }
+
+    setRefreshError(null);
+    setRefreshSummary(null);
+    setRefreshLoading(true);
+
+    try {
+      const response = await fetch('/api/refresh-prices/manual', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${sessionToken}`,
+        },
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.ok) {
+        setRefreshError(data.error || 'Failed to refresh prices');
+        return;
+      }
+
+      setRefreshSummary({
+        processed: data.processed ?? 0,
+        updated: data.updated ?? 0,
+        skipped: data.skipped ?? 0,
+        errors: Array.isArray(data.errors) ? data.errors.length : data.errors_count ?? 0,
+      });
+    } catch (err) {
+      setRefreshError(err instanceof Error ? err.message : 'Unexpected error while refreshing prices');
+    } finally {
+      setRefreshLoading(false);
+    }
+  };
 
   const loadAccounts = async () => {
     // Schema: id, name, kind, currency (accounts table)
@@ -474,6 +524,13 @@ export default function StatsPage() {
           </div>
           <div className="flex items-center gap-3">
             <button
+              onClick={handleManualRefresh}
+              disabled={refreshLoading}
+              className="rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-800 transition hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              🔄 Refresh prices
+            </button>
+            <button
               onClick={() => router.push('/app')}
               className="rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-800 transition hover:bg-neutral-100"
             >
@@ -496,6 +553,22 @@ export default function StatsPage() {
 
         {error && (
           <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
+        )}
+
+        {refreshLoading && (
+          <div className="rounded-lg bg-neutral-100 px-4 py-3 text-sm text-neutral-700">
+            Обновляем котировки и FX...
+          </div>
+        )}
+
+        {refreshError && (
+          <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{refreshError}</div>
+        )}
+
+        {refreshSummary && !refreshLoading && !refreshError && (
+          <div className="rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+            Updated {refreshSummary.updated}, Skipped {refreshSummary.skipped}, Errors {refreshSummary.errors}
+          </div>
         )}
 
         {/* Период */}

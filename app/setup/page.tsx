@@ -79,6 +79,7 @@ export default function SetupPage() {
 
   const [sessionChecked, setSessionChecked] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
+  const [sessionToken, setSessionToken] = useState<string | null>(null);
 
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [accountsLoading, setAccountsLoading] = useState(false);
@@ -115,6 +116,14 @@ export default function SetupPage() {
   const [fxRate, setFxRate] = useState<number | null>(null);
   const [fxLoading, setFxLoading] = useState(false);
   const [fxError, setFxError] = useState<string | null>(null);
+  const [refreshLoading, setRefreshLoading] = useState(false);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+  const [refreshSummary, setRefreshSummary] = useState<{
+    processed: number;
+    updated: number;
+    skipped: number;
+    errors: number;
+  } | null>(null);
 
   // Редактирование счета
   const [editingAccountId, setEditingAccountId] = useState<string | null>(null);
@@ -297,6 +306,8 @@ export default function SetupPage() {
       if (!session) return;
 
       setUserId(session.user.id);
+      const accessToken = (session as { access_token?: string }).access_token;
+      setSessionToken(accessToken || null);
       setSessionChecked(true);
       await Promise.all([loadAccounts(), loadCategories()]);
     };
@@ -310,6 +321,49 @@ export default function SetupPage() {
       loadFxRate();
     }
   }, [userId, accounts]);
+
+  const handleManualRefresh = async () => {
+    if (!sessionToken) {
+      setRefreshError('Session token is missing. Please re-login.');
+      return;
+    }
+
+    setRefreshError(null);
+    setRefreshSummary(null);
+    setRefreshLoading(true);
+
+    try {
+      const response = await fetch('/api/refresh-prices/manual', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${sessionToken}`,
+        },
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.ok) {
+        setRefreshError(data.error || 'Failed to refresh prices');
+        return;
+      }
+
+      setRefreshSummary({
+        processed: data.processed ?? 0,
+        updated: data.updated ?? 0,
+        skipped: data.skipped ?? 0,
+        errors: Array.isArray(data.errors) ? data.errors.length : data.errors_count ?? 0,
+      });
+
+      if (userId) {
+        await loadFxRate();
+      }
+    } catch (err) {
+      setRefreshError(err instanceof Error ? err.message : 'Unexpected error while refreshing prices');
+    } finally {
+      setRefreshLoading(false);
+    }
+  };
 
   const loadAccounts = async () => {
     setAccountsLoading(true);
@@ -1448,6 +1502,13 @@ export default function SetupPage() {
           </div>
           <div className="flex items-center gap-3">
             <button
+              onClick={handleManualRefresh}
+              disabled={refreshLoading}
+              className="rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-800 transition hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              🔄 Refresh prices
+            </button>
+            <button
               onClick={() => router.push('/app')}
               className="rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-800 transition hover:bg-neutral-100"
             >
@@ -1467,6 +1528,22 @@ export default function SetupPage() {
             </button>
           </div>
         </header>
+
+        {refreshLoading && (
+          <div className="rounded-lg bg-neutral-100 px-4 py-3 text-sm text-neutral-700">
+            Обновляем котировки и FX...
+          </div>
+        )}
+
+        {refreshError && (
+          <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{refreshError}</div>
+        )}
+
+        {refreshSummary && !refreshLoading && !refreshError && (
+          <div className="rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+            Updated {refreshSummary.updated}, Skipped {refreshSummary.skipped}, Errors {refreshSummary.errors}
+          </div>
+        )}
 
         <main className="grid gap-6 md:grid-cols-2">
           {/* Accounts block */}
