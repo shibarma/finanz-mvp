@@ -168,6 +168,9 @@ export default function SetupPage() {
   const [positionKind, setPositionKind] = useState<InstrumentKind>('stock');
   const [positionSymbol, setPositionSymbol] = useState('');
   const [positionQuantity, setPositionQuantity] = useState('');
+  const [positionInputMode, setPositionInputMode] =
+    useState<'quantity' | 'amount'>('quantity');
+  const [positionAmount, setPositionAmount] = useState('');
   const [positionComment, setPositionComment] = useState('');
   const [editingPositionId, setEditingPositionId] = useState<string | null>(null);
   const [editPositionQuantity, setEditPositionQuantity] = useState('');
@@ -1242,16 +1245,6 @@ export default function SetupPage() {
       return;
     }
 
-    const quantityNum = Number(positionQuantity);
-    if (!positionQuantity.trim() || Number.isNaN(quantityNum)) {
-      setPositionFormError('Введите количество (0 или больше).');
-      return;
-    }
-    if (quantityNum < 0) {
-      setPositionFormError('Количество не может быть отрицательным.');
-      return;
-    }
-
     const brokerAccount = accounts.find((a) => a.id === selectedBrokerAccountId);
     if (!brokerAccount || !brokerAccount.currency) {
       setPositionFormError('Не удалось найти брокерский счёт или валюта не задана.');
@@ -1297,6 +1290,48 @@ export default function SetupPage() {
 
       const finnhubPrice = quoteData.price;
       const fetchedAt = quoteData.fetched_at || new Date().toISOString();
+
+      // Определяем quantity в зависимости от режима ввода
+      let quantityNum: number;
+
+      if (positionInputMode === 'quantity') {
+        quantityNum = Number(positionQuantity);
+
+        if (!positionQuantity.trim() || Number.isNaN(quantityNum)) {
+          setPositionSubmitting(false);
+          setPositionFormError('Введите количество (0 или больше).');
+          return;
+        }
+
+        if (quantityNum < 0) {
+          setPositionSubmitting(false);
+          setPositionFormError('Количество не может быть отрицательным.');
+          return;
+        }
+      } else {
+        const amountNum = Number(positionAmount);
+
+        if (!positionAmount.trim() || Number.isNaN(amountNum) || amountNum < 0) {
+          setPositionSubmitting(false);
+          setPositionFormError('Введите сумму (0 или больше).');
+          return;
+        }
+
+        if (!finnhubPrice || finnhubPrice <= 0) {
+          setPositionSubmitting(false);
+          setPositionFormError('Невозможно рассчитать количество: цена недоступна.');
+          return;
+        }
+
+        quantityNum = amountNum / finnhubPrice;
+      }
+
+      // Общая проверка: NaN / отрицательные значения запрещаем, 0 разрешён
+      if (Number.isNaN(quantityNum) || quantityNum < 0) {
+        setPositionSubmitting(false);
+        setPositionFormError('Некорректное количество.');
+        return;
+      }
 
       // Find or create instrument
       const { data: existingInstrument, error: findError } = await supabase
@@ -1394,6 +1429,7 @@ export default function SetupPage() {
       // Success
       setPositionSymbol('');
       setPositionQuantity('');
+      setPositionAmount('');
       setPositionComment('');
       await loadPositions();
       setPositionSubmitting(false);
@@ -2634,25 +2670,6 @@ export default function SetupPage() {
                   <div className="space-y-1">
                     <label
                       className="block text-xs font-medium text-neutral-700"
-                      htmlFor="position-quantity"
-                    >
-                      Количество
-                    </label>
-                    <input
-                      id="position-quantity"
-                      type="number"
-                      step="any"
-                      min="0"
-                      value={positionQuantity}
-                      onChange={(e) => setPositionQuantity(e.target.value)}
-                      required
-                      className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
-                    />
-                  </div>
-
-                  <div className="space-y-1">
-                    <label
-                      className="block text-xs font-medium text-neutral-700"
                       htmlFor="position-comment"
                     >
                       Комментарий (необязательно)
@@ -2665,6 +2682,78 @@ export default function SetupPage() {
                       className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
                     />
                   </div>
+
+                  <div className="space-y-1">
+                    <span className="block text-xs font-medium text-neutral-700">
+                      Режим ввода
+                    </span>
+                    <div className="inline-flex rounded-lg border border-neutral-300 bg-neutral-50 p-0.5 text-xs">
+                      <button
+                        type="button"
+                        onClick={() => setPositionInputMode('quantity')}
+                        className={`px-3 py-1 rounded-md ${
+                          positionInputMode === 'quantity'
+                            ? 'bg-white text-neutral-900 shadow-sm'
+                            : 'text-neutral-600'
+                        }`}
+                      >
+                        Количество
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPositionInputMode('amount')}
+                        className={`px-3 py-1 rounded-md ${
+                          positionInputMode === 'amount'
+                            ? 'bg-white text-neutral-900 shadow-sm'
+                            : 'text-neutral-600'
+                        }`}
+                      >
+                        Сумма
+                      </button>
+                    </div>
+                  </div>
+
+                  {positionInputMode === 'quantity' ? (
+                    <div className="space-y-1">
+                      <label
+                        className="block text-xs font-medium text-neutral-700"
+                        htmlFor="position-quantity"
+                      >
+                        Количество
+                      </label>
+                      <input
+                        id="position-quantity"
+                        type="number"
+                        step="any"
+                        min="0"
+                        value={positionQuantity}
+                        onChange={(e) => setPositionQuantity(e.target.value)}
+                        className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                      />
+                    </div>
+                  ) : (
+                    <div className="space-y-1">
+                      <label
+                        className="block text-xs font-medium text-neutral-700"
+                        htmlFor="position-amount"
+                      >
+                        Сумма в валюте брокерского счёта
+                      </label>
+                      <input
+                        id="position-amount"
+                        type="number"
+                        step="any"
+                        min="0"
+                        value={positionAmount}
+                        onChange={(e) => setPositionAmount(e.target.value)}
+                        className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                        placeholder="Например, 1500"
+                      />
+                      <p className="text-[11px] text-neutral-500">
+                        Количество будет рассчитано автоматически по текущей цене инструмента.
+                      </p>
+                    </div>
+                  )}
 
                   {positionFormError && (
                     <div className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">
