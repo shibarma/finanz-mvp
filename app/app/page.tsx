@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { getSession, supabase } from '../../lib/supabaseClient';
+import { parseMoneyExpression } from '../../lib/parseMoneyExpression';
 
 type AccountKind = 'debit' | 'credit' | 'cash' | 'broker';
 type AccountCurrency = 'EUR' | 'USD';
@@ -613,8 +614,13 @@ export default function FinanceAppPage() {
 
     setError(null);
 
-    const amount = parseFloat(amountIncome);
-    if (!amount || Number.isNaN(amount) || amount <= 0) {
+    const parsed = parseMoneyExpression(amountIncome);
+    if (!parsed.ok) {
+      setError(parsed.error);
+      return;
+    }
+    const amount = parsed.value;
+    if (amount <= 0) {
       setError('Введите положительную сумму.');
       return;
     }
@@ -655,8 +661,13 @@ export default function FinanceAppPage() {
 
     setError(null);
 
-    const amount = parseFloat(amountExpense);
-    if (!amount || Number.isNaN(amount) || amount <= 0) {
+    const parsed = parseMoneyExpression(amountExpense);
+    if (!parsed.ok) {
+      setError(parsed.error);
+      return;
+    }
+    const amount = parsed.value;
+    if (amount <= 0) {
       setError('Введите положительную сумму.');
       return;
     }
@@ -716,8 +727,13 @@ export default function FinanceAppPage() {
 
     setError(null);
 
-    const amount = parseFloat(amountTransfer);
-    if (!amount || Number.isNaN(amount) || amount <= 0) {
+    const parsed = parseMoneyExpression(amountTransfer);
+    if (!parsed.ok) {
+      setError(parsed.error);
+      return;
+    }
+    const amount = parsed.value;
+    if (amount <= 0) {
       setError('Введите положительную сумму.');
       return;
     }
@@ -902,9 +918,26 @@ export default function FinanceAppPage() {
 
     setError(null);
 
-    const quantity = parseFloat(investQuantity);
-    const pricePerUnit = parseFloat(investPricePerUnit);
-    const fee = parseFloat(investFee);
+    const quantityParsed = parseMoneyExpression(investQuantity);
+    if (!quantityParsed.ok) {
+      setError(quantityParsed.error);
+      return;
+    }
+    const quantity = quantityParsed.value;
+
+    const priceParsed = parseMoneyExpression(investPricePerUnit);
+    if (!priceParsed.ok) {
+      setError(priceParsed.error);
+      return;
+    }
+    const pricePerUnit = priceParsed.value;
+
+    const feeParsed = parseMoneyExpression(investFee || '0');
+    if (!feeParsed.ok) {
+      setError(feeParsed.error);
+      return;
+    }
+    const fee = feeParsed.value;
 
     if (!investBroker) {
       setError('Выберите брокера.');
@@ -914,15 +947,15 @@ export default function FinanceAppPage() {
       setError('Выберите инструмент.');
       return;
     }
-    if (Number.isNaN(quantity) || quantity <= 0) {
+    if (quantity <= 0) {
       setError('Количество должно быть больше 0.');
       return;
     }
-    if (Number.isNaN(pricePerUnit) || pricePerUnit <= 0) {
+    if (pricePerUnit <= 0) {
       setError('Цена за единицу должна быть больше 0.');
       return;
     }
-    if (Number.isNaN(fee) || fee < 0) {
+    if (fee < 0) {
       setError('Комиссия должна быть не меньше 0.');
       return;
     }
@@ -1122,8 +1155,13 @@ export default function FinanceAppPage() {
 
     setError(null);
 
-    const amount = parseFloat(editAmount);
-    if (!amount || Number.isNaN(amount) || amount <= 0) {
+    const parsed = parseMoneyExpression(editAmount);
+    if (!parsed.ok) {
+      setError(parsed.error);
+      return;
+    }
+    const amount = parsed.value;
+    if (amount <= 0) {
       setError('Введите положительную сумму.');
       return;
     }
@@ -1282,19 +1320,36 @@ export default function FinanceAppPage() {
     const trade = investmentTrades.find((t) => t.id === editingTradeId);
     if (!trade) return;
 
-    const quantity = parseFloat(editTradeQuantity);
-    const pricePerUnit = parseFloat(editTradePrice);
-    const fee = parseFloat(editTradeFee);
+    const quantityParsed = parseMoneyExpression(editTradeQuantity);
+    if (!quantityParsed.ok) {
+      setTradeEditError(quantityParsed.error);
+      return;
+    }
+    const quantity = quantityParsed.value;
 
-    if (Number.isNaN(quantity) || quantity <= 0) {
+    const priceParsed = parseMoneyExpression(editTradePrice);
+    if (!priceParsed.ok) {
+      setTradeEditError(priceParsed.error);
+      return;
+    }
+    const pricePerUnit = priceParsed.value;
+
+    const feeParsed = parseMoneyExpression(editTradeFee || '0');
+    if (!feeParsed.ok) {
+      setTradeEditError(feeParsed.error);
+      return;
+    }
+    const fee = feeParsed.value;
+
+    if (quantity <= 0) {
       setTradeEditError('Количество должно быть больше 0.');
       return;
     }
-    if (Number.isNaN(pricePerUnit) || pricePerUnit <= 0) {
+    if (pricePerUnit <= 0) {
       setTradeEditError('Цена за единицу должна быть больше 0.');
       return;
     }
-    if (Number.isNaN(fee) || fee < 0) {
+    if (fee < 0) {
       setTradeEditError('Комиссия должна быть не меньше 0.');
       return;
     }
@@ -1580,14 +1635,15 @@ export default function FinanceAppPage() {
                 <div>
                   <label className="block text-xs font-medium text-neutral-700">Сумма</label>
                   <input
-                    type="number"
-                    min="0"
-                    step="0.01"
+                    type="text"
                     value={amountIncome}
                     onChange={(e) => setAmountIncome(e.target.value)}
                     className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
                     placeholder="0.00"
                   />
+                  <p className="mt-1 text-xs text-neutral-500">
+                    Можно вводить выражение: 5+6-2, поддерживаются + - * / ( )
+                  </p>
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-neutral-700">Куда</label>
@@ -1647,20 +1703,21 @@ export default function FinanceAppPage() {
             </div>
 
             {/* Expense */}
-            <div className="space-y-3 rounded-lg border border-neutral-200 p-4">
+              <div className="space-y-3 rounded-lg border border-neutral-200 p-4">
               <h3 className="text-sm font-semibold text-neutral-900">Expense</h3>
               <div className="space-y-2">
                 <div>
                   <label className="block text-xs font-medium text-neutral-700">Сумма</label>
                   <input
-                    type="number"
-                    min="0"
-                    step="0.01"
+                    type="text"
                     value={amountExpense}
                     onChange={(e) => setAmountExpense(e.target.value)}
                     className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
                     placeholder="0.00"
                   />
+                  <p className="mt-1 text-xs text-neutral-500">
+                    Можно вводить выражение: 5+6-2, поддерживаются + - * / ( )
+                  </p>
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-neutral-700">Откуда</label>
@@ -1720,20 +1777,21 @@ export default function FinanceAppPage() {
             </div>
 
             {/* Transfer */}
-            <div className="space-y-3 rounded-lg border border-neutral-200 p-4">
+              <div className="space-y-3 rounded-lg border border-neutral-200 p-4">
               <h3 className="text-sm font-semibold text-neutral-900">Transfer</h3>
               <div className="space-y-2">
                 <div>
                   <label className="block text-xs font-medium text-neutral-700">Сумма</label>
                   <input
-                    type="number"
-                    min="0"
-                    step="0.01"
+                    type="text"
                     value={amountTransfer}
                     onChange={(e) => setAmountTransfer(e.target.value)}
                     className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
                     placeholder="0.00"
                   />
+                  <p className="mt-1 text-xs text-neutral-500">
+                    Можно вводить выражение: 5+6-2, поддерживаются + - * / ( )
+                  </p>
                 </div>
                 <div>
                   <label className="flex items-center gap-2">
@@ -1925,14 +1983,15 @@ export default function FinanceAppPage() {
                 <div>
                   <label className="block text-xs font-medium text-neutral-700">Количество</label>
                   <input
-                    type="number"
-                    min="0"
-                    step="any"
+                    type="text"
                     value={investQuantity}
                     onChange={(e) => setInvestQuantity(e.target.value)}
                     className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
                     placeholder="0"
                   />
+                  <p className="mt-1 text-xs text-neutral-500">
+                    Можно вводить выражение: 5+6-2, поддерживаются + - * / ( )
+                  </p>
                   {parseFloat(investQuantity) <= 0 && investQuantity !== '' && (
                     <p className="mt-1 text-xs text-red-600">Количество должно быть &gt; 0</p>
                   )}
@@ -1945,21 +2004,20 @@ export default function FinanceAppPage() {
                 <div>
                   <label className="block text-xs font-medium text-neutral-700">Цена за единицу</label>
                   <input
-                    type="number"
-                    min="0"
-                    step="any"
+                    type="text"
                     value={investPricePerUnit}
                     onChange={(e) => setInvestPricePerUnit(e.target.value)}
                     className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
                     placeholder="0"
                   />
+                  <p className="mt-1 text-xs text-neutral-500">
+                    Можно вводить выражение: 5+6-2, поддерживаются + - * / ( )
+                  </p>
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-neutral-700">Комиссия (опционально)</label>
                   <input
-                    type="number"
-                    min="0"
-                    step="any"
+                    type="text"
                     value={investFee}
                     onChange={(e) => setInvestFee(e.target.value)}
                     className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
@@ -2447,42 +2505,45 @@ export default function FinanceAppPage() {
                   <div>
                     <label className="block text-xs font-medium text-neutral-700">Количество</label>
                     <input
-                      type="number"
-                      min="0"
-                      step="any"
+                      type="text"
                       value={editTradeQuantity}
                       onChange={(e) => setEditTradeQuantity(e.target.value)}
                       className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
                       placeholder="0"
                     />
+                    <p className="mt-1 text-xs text-neutral-500">
+                      Можно вводить выражение: 5+6-2, поддерживаются + - * / ( )
+                    </p>
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-neutral-700">
                       Цена за единицу ({curSym})
                     </label>
                     <input
-                      type="number"
-                      min="0"
-                      step="any"
+                      type="text"
                       value={editTradePrice}
                       onChange={(e) => setEditTradePrice(e.target.value)}
                       className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
                       placeholder="0"
                     />
+                    <p className="mt-1 text-xs text-neutral-500">
+                      Можно вводить выражение: 5+6-2, поддерживаются + - * / ( )
+                    </p>
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-neutral-700">
                       Комиссия ({curSym})
                     </label>
                     <input
-                      type="number"
-                      min="0"
-                      step="any"
+                      type="text"
                       value={editTradeFee}
                       onChange={(e) => setEditTradeFee(e.target.value)}
                       className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
                       placeholder="0"
                     />
+                    <p className="mt-1 text-xs text-neutral-500">
+                      Можно вводить выражение: 5+6-2, поддерживаются + - * / ( )
+                    </p>
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-neutral-700">
@@ -2531,14 +2592,15 @@ export default function FinanceAppPage() {
                 <div>
                   <label className="block text-xs font-medium text-neutral-700">Сумма</label>
                   <input
-                    type="number"
-                    min="0"
-                    step="0.01"
+                    type="text"
                     value={editAmount}
                     onChange={(e) => setEditAmount(e.target.value)}
                     className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
                     placeholder="0.00"
                   />
+                  <p className="mt-1 text-xs text-neutral-500">
+                    Можно вводить выражение: 5+6-2, поддерживаются + - * / ( )
+                  </p>
                 </div>
 
                 {editingOperation.type === 'transfer' ? (

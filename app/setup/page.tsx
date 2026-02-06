@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { getSession, supabase } from '../../lib/supabaseClient';
+import { parseMoneyExpression } from '../../lib/parseMoneyExpression';
 
 type AccountKind = 'debit' | 'credit' | 'cash' | 'broker';
 type AccountCurrency = 'EUR' | 'USD';
@@ -1295,13 +1296,13 @@ export default function SetupPage() {
       let quantityNum: number;
 
       if (positionInputMode === 'quantity') {
-        quantityNum = Number(positionQuantity);
-
-        if (!positionQuantity.trim() || Number.isNaN(quantityNum)) {
+        const parsed = parseMoneyExpression(positionQuantity);
+        if (!parsed.ok) {
           setPositionSubmitting(false);
-          setPositionFormError('Введите количество (0 или больше).');
+          setPositionFormError(parsed.error);
           return;
         }
+        quantityNum = parsed.value;
 
         if (quantityNum < 0) {
           setPositionSubmitting(false);
@@ -1458,11 +1459,12 @@ export default function SetupPage() {
 
     setPositionEditError(null);
 
-    const quantityNum = Number(editPositionQuantity);
-    if (!editPositionQuantity.trim() || Number.isNaN(quantityNum)) {
-      setPositionEditError('Введите количество (0 или больше).');
+    const parsed = parseMoneyExpression(editPositionQuantity);
+    if (!parsed.ok) {
+      setPositionEditError(parsed.error);
       return;
     }
+    const quantityNum = parsed.value;
     if (quantityNum < 0) {
       setPositionEditError('Количество не может быть отрицательным.');
       return;
@@ -2500,13 +2502,14 @@ export default function SetupPage() {
                                   Количество
                                 </label>
                                 <input
-                                  type="number"
-                                  step="any"
-                                  min="0"
+                                  type="text"
                                   value={editPositionQuantity}
                                   onChange={(e) => setEditPositionQuantity(e.target.value)}
                                   className="w-full rounded-lg border border-neutral-300 px-2 py-1 text-xs outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
                                 />
+                                <p className="mt-1 text-[10px] text-neutral-500">
+                                  Можно вводить выражение: 5+6-2, поддерживаются + - * / ( )
+                                </p>
                               </div>
 
                               <div className="space-y-1">
@@ -2723,13 +2726,14 @@ export default function SetupPage() {
                       </label>
                       <input
                         id="position-quantity"
-                        type="number"
-                        step="any"
-                        min="0"
+                        type="text"
                         value={positionQuantity}
                         onChange={(e) => setPositionQuantity(e.target.value)}
                         className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
                       />
+                      <p className="mt-1 text-xs text-neutral-500">
+                        Можно вводить выражение: 5+6-2, поддерживаются + - * / ( )
+                      </p>
                     </div>
                   ) : (
                     <div className="space-y-1">
