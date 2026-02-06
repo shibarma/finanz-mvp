@@ -90,10 +90,12 @@ interface QuoteFailure {
 
 type QuoteResult = QuoteSuccess | QuoteFailure;
 
-async function fetchQuoteWithRetry(baseUrl: string, symbol: string): Promise<QuoteResult> {
+async function fetchQuoteWithRetry(symbol: string, apiKey: string): Promise<QuoteResult> {
   const maxRetries = 3;
   const backoffs = [1000, 2000, 4000];
-  const url = `${baseUrl}/api/market/quote?symbol=${encodeURIComponent(symbol)}`;
+  const url = `https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(
+    symbol,
+  )}&token=${encodeURIComponent(apiKey)}`;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
@@ -119,28 +121,29 @@ async function fetchQuoteWithRetry(baseUrl: string, symbol: string): Promise<Quo
           ok: false,
           status: res.status,
           reason: 'Rate limit (429) — will retry later',
-          body: bodyText.slice(0, 300),
+          body: bodyText.slice(0, 500),
         };
       }
 
-      if (!res.ok || !data?.ok) {
+      if (!res.ok) {
         return {
           ok: false,
           status: res.status,
-          reason: (data && typeof data.error === 'string' && data.error) || 'Quote request failed',
-          body: (bodyText || JSON.stringify(data || {})).slice(0, 300),
+          reason: 'Quote request failed',
+          body: bodyText.slice(0, 500),
         };
       }
 
-      const price = data.price;
-      const fetchedAt: string = data.fetched_at || new Date().toISOString();
+      // Finnhub quote: { c: current price, ... }
+      const price = data?.c;
+      const fetchedAt: string = new Date().toISOString();
 
       if (typeof price !== 'number' || !Number.isFinite(price) || price <= 0) {
         return {
           ok: false,
           status: res.status,
           reason: 'Invalid or missing price',
-          body: (bodyText || JSON.stringify(data || {})).slice(0, 300),
+          body: (bodyText || JSON.stringify(data || {})).slice(0, 500),
         };
       }
 
@@ -203,7 +206,7 @@ export async function refreshPricesEngine(
   };
 
   const supabaseAdmin = createAdminClient();
-  const baseUrl = getBaseUrl();
+  const finnhubApiKey = process.env.FINNHUB_API_KEY;
   const quoteCache = new Map<string, QuoteResult>();
   let lastQuoteRequestAt: number | null = null;
 
@@ -264,6 +267,17 @@ export async function refreshPricesEngine(
     let quoteResult = quoteCache.get(symbol);
 
     if (!quoteResult) {
+      if (!finnhubApiKey) {
+        summary.skipped += 1;
+        summary.errors.push({
+          scope: 'quote',
+          position_id: position.id,
+          symbol: String(symbol),
+          reason: 'FINNHUB_API_KEY not configured',
+        });
+        continue;
+      }
+
       const now = Date.now();
       if (lastQuoteRequestAt !== null) {
         const elapsed = now - lastQuoteRequestAt;
@@ -273,7 +287,7 @@ export async function refreshPricesEngine(
       }
 
       lastQuoteRequestAt = Date.now();
-      quoteResult = await fetchQuoteWithRetry(baseUrl, symbol);
+      quoteResult = await fetchQuoteWithRetry(symbol, finnhubApiKey);
       quoteCache.set(symbol, quoteResult);
     }
 
