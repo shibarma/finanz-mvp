@@ -180,6 +180,11 @@ export default function FinanceAppPage() {
   const [operationsPage, setOperationsPage] = useState(0);
   const OPERATIONS_PER_PAGE = 20;
 
+  // Фильтры для последних операций
+  const [operationsAccountFilter, setOperationsAccountFilter] = useState<string>('all');
+  const [operationsCategoryFilter, setOperationsCategoryFilter] = useState<string>('all');
+  const [operationsTypeFilter, setOperationsTypeFilter] = useState<'all' | 'income' | 'expense' | 'transfer'>('all');
+
   // Редактирование транзакций
   const [editingOperation, setEditingOperation] = useState<{
     id: string;
@@ -320,6 +325,11 @@ export default function FinanceAppPage() {
       loadFxRate();
     }
   }, [userId]);
+
+  // При изменении фильтров сбрасываем страницу операций на первую
+  useEffect(() => {
+    setOperationsPage(0);
+  }, [operationsAccountFilter, operationsCategoryFilter, operationsTypeFilter]);
 
   const loadAccounts = async () => {
     const { data, error: fetchError } = await supabase
@@ -2197,29 +2207,112 @@ export default function FinanceAppPage() {
 
         {/* Last operations */}
         <section className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-neutral-900">Последние операции</h2>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setOperationsPage((p) => Math.max(0, p - 1))}
-                disabled={operationsPage === 0}
-                className="rounded-lg border border-neutral-300 px-3 py-1 text-xs font-medium text-neutral-800 transition hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                ←
-              </button>
-              <span className="text-xs text-neutral-600">
-                Страница {operationsPage + 1}
-              </span>
-              <button
-                onClick={() => setOperationsPage((p) => p + 1)}
-                disabled={
-                  (operationsPage + 1) * OPERATIONS_PER_PAGE >=
-                  transfers.length + transactions.filter((t) => t.kind !== 'transfer' && !t.is_investment).length
-                }
-                className="rounded-lg border border-neutral-300 px-3 py-1 text-xs font-medium text-neutral-800 transition hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                →
-              </button>
+          <div className="mb-4 space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-lg font-semibold text-neutral-900">Последние операции</h2>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setOperationsPage((p) => Math.max(0, p - 1))}
+                  disabled={operationsPage === 0}
+                  className="rounded-lg border border-neutral-300 px-3 py-1 text-xs font-medium text-neutral-800 transition hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  ←
+                </button>
+                <span className="text-xs text-neutral-600">
+                  Страница {operationsPage + 1}
+                </span>
+                <button
+                  onClick={() => setOperationsPage((p) => p + 1)}
+                  disabled={
+                    (operationsPage + 1) * OPERATIONS_PER_PAGE >=
+                    transfers.length + transactions.filter((t) => t.kind !== 'transfer' && !t.is_investment).length
+                  }
+                  className="rounded-lg border border-neutral-300 px-3 py-1 text-xs font-medium text-neutral-800 transition hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  →
+                </button>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-3 text-xs">
+              <div className="flex flex-col gap-1">
+                <span className="font-medium text-neutral-700">Счёт</span>
+                <select
+                  value={operationsAccountFilter}
+                  onChange={(e) => setOperationsAccountFilter(e.target.value)}
+                  className="min-w-[160px] rounded-lg border border-neutral-300 bg-white px-2 py-1 text-xs outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                >
+                  <option value="all">Все счета</option>
+                  {accounts.map((acc) => (
+                    <option key={acc.id} value={acc.id}>
+                      {acc.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex flex-col gap-1">
+                <span className="font-medium text-neutral-700">Категория</span>
+                <select
+                  value={operationsCategoryFilter}
+                  onChange={(e) => setOperationsCategoryFilter(e.target.value)}
+                  className="min-w-[160px] rounded-lg border border-neutral-300 bg-white px-2 py-1 text-xs outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                >
+                  <option value="all">Все категории</option>
+                  {categories.map((cat) => (
+                    <option key={cat.id} value={cat.id}>
+                      {cat.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex flex-col gap-1">
+                <span className="font-medium text-neutral-700">Тип</span>
+                <div className="flex flex-wrap gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setOperationsTypeFilter('all')}
+                    className={`rounded-full px-3 py-1 text-xs font-medium border ${
+                      operationsTypeFilter === 'all'
+                        ? 'border-neutral-900 bg-neutral-900 text-white'
+                        : 'border-neutral-300 bg-white text-neutral-800 hover:bg-neutral-100'
+                    }`}
+                  >
+                    Все
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setOperationsTypeFilter('income')}
+                    className={`rounded-full px-3 py-1 text-xs font-medium border ${
+                      operationsTypeFilter === 'income'
+                        ? 'border-emerald-700 bg-emerald-700 text-white'
+                        : 'border-neutral-300 bg-white text-neutral-800 hover:bg-neutral-100'
+                    }`}
+                  >
+                    Доход
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setOperationsTypeFilter('expense')}
+                    className={`rounded-full px-3 py-1 text-xs font-medium border ${
+                      operationsTypeFilter === 'expense'
+                        ? 'border-red-700 bg-red-700 text-white'
+                        : 'border-neutral-300 bg-white text-neutral-800 hover:bg-neutral-100'
+                    }`}
+                  >
+                    Расход
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setOperationsTypeFilter('transfer')}
+                    className={`rounded-full px-3 py-1 text-xs font-medium border ${
+                      operationsTypeFilter === 'transfer'
+                        ? 'border-blue-700 bg-blue-700 text-white'
+                        : 'border-neutral-300 bg-white text-neutral-800 hover:bg-neutral-100'
+                    }`}
+                  >
+                    Перевод
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -2229,12 +2322,16 @@ export default function FinanceAppPage() {
               id: string;
               type: 'income' | 'expense' | 'transfer';
               amount: number;
+              accountId?: string;
+              fromAccountId?: string;
+              toAccountId?: string;
               accountName?: string;
               accountCurrency?: AccountCurrency;
               fromAccountName?: string;
               fromAccountCurrency?: AccountCurrency;
               toAccountName?: string;
               toAccountCurrency?: AccountCurrency;
+              categoryId?: string;
               categoryName?: string;
               comment: string | null;
               date: string;
@@ -2248,6 +2345,8 @@ export default function FinanceAppPage() {
                 id: transfer.id,
                 type: 'transfer',
                 amount: transfer.amount,
+                fromAccountId: transfer.from_account_id,
+                toAccountId: transfer.to_account_id,
                 fromAccountName: fromAccount?.name,
                 fromAccountCurrency: fromAccount ? getAccountCurrency(fromAccount) : 'EUR',
                 toAccountName: toAccount?.name,
@@ -2267,21 +2366,57 @@ export default function FinanceAppPage() {
                   id: tx.id,
                   type: tx.kind as 'income' | 'expense',
                   amount: tx.amount,
+                  accountId: tx.account_id,
                   accountName: account?.name,
                   accountCurrency: account ? getAccountCurrency(account) : 'EUR',
+                  categoryId: tx.category_id || undefined,
                   categoryName: category?.name,
                   comment: tx.comment,
                   date: tx.created_at,
                 });
               });
 
+            // Применяем фильтры
+            const filteredOperations = allOperations.filter((op) => {
+              // Фильтр по типу
+              if (operationsTypeFilter !== 'all' && op.type !== operationsTypeFilter) {
+                return false;
+              }
+
+              // Фильтр по счёту
+              if (operationsAccountFilter !== 'all') {
+                if (op.type === 'transfer') {
+                  if (op.fromAccountId !== operationsAccountFilter && op.toAccountId !== operationsAccountFilter) {
+                    return false;
+                  }
+                } else {
+                  if (op.accountId !== operationsAccountFilter) {
+                    return false;
+                  }
+                }
+              }
+
+              // Фильтр по категории
+              if (operationsCategoryFilter !== 'all') {
+                // Для переводов категория не применяется — при выборе категории скрываем переводы
+                if (op.type === 'transfer') {
+                  return false;
+                }
+                if (op.categoryId !== operationsCategoryFilter) {
+                  return false;
+                }
+              }
+
+              return true;
+            });
+
             // Сортируем по дате (новые сначала)
-            allOperations.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+            filteredOperations.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
             // Пагинация
             const startIndex = operationsPage * OPERATIONS_PER_PAGE;
             const endIndex = startIndex + OPERATIONS_PER_PAGE;
-            const paginatedOperations = allOperations.slice(startIndex, endIndex);
+            const paginatedOperations = filteredOperations.slice(startIndex, endIndex);
 
             if (paginatedOperations.length === 0) {
               return (
