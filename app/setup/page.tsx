@@ -141,14 +141,10 @@ export default function SetupPage() {
   const [defaultUpdating, setDefaultUpdating] = useState<Set<string>>(new Set());
   const [defaultError, setDefaultError] = useState<string | null>(null);
 
-  // Очистка истории операций
-  const [clearingHistory, setClearingHistory] = useState(false);
-  const [clearHistoryError, setClearHistoryError] = useState<string | null>(null);
-  const [clearHistorySuccess, setClearHistorySuccess] = useState<string | null>(null);
-
   // Очистка операций за период
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [showPeriodDeletePanel, setShowPeriodDeletePanel] = useState(false);
   const [clearingPeriod, setClearingPeriod] = useState(false);
   const [clearPeriodError, setClearPeriodError] = useState<string | null>(null);
   const [clearPeriodSuccess, setClearPeriodSuccess] = useState<string | null>(null);
@@ -1039,63 +1035,6 @@ export default function SetupPage() {
   const handleLogout = async () => {
     await supabase.auth.signOut();
     router.replace('/login');
-  };
-
-  const handleClearHistory = async () => {
-    if (
-      !window.confirm(
-        'Вы уверены? Все доходы, расходы и переводы будут удалены. Счета и категории сохранятся. Действие нельзя отменить.',
-      )
-    ) {
-      return;
-    }
-
-    setClearHistoryError(null);
-    setClearHistorySuccess(null);
-    setClearingHistory(true);
-
-    try {
-      // Получаем текущую сессию
-      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-      if (sessionError || !sessionData?.session?.user?.id) {
-        setClearHistoryError('Не удалось получить сессию пользователя.');
-        setClearingHistory(false);
-        return;
-      }
-
-      const userId = sessionData.session.user.id;
-
-      // Удаляем транзакции
-      const { error: transactionsError } = await supabase
-        .from('transactions')
-        .delete()
-        .eq('user_id', userId);
-
-      if (transactionsError) {
-        setClearHistoryError(`Ошибка при удалении транзакций: ${transactionsError.message}`);
-        setClearingHistory(false);
-        return;
-      }
-
-      // Удаляем переводы
-      const { error: transfersError } = await supabase
-        .from('transfers')
-        .delete()
-        .eq('user_id', userId);
-
-      if (transfersError) {
-        setClearHistoryError(`Ошибка при удалении переводов: ${transfersError.message}`);
-        setClearingHistory(false);
-        return;
-      }
-
-      // Успех
-      setClearHistorySuccess('Готово: история очищена');
-      setClearingHistory(false);
-    } catch (error: any) {
-      setClearHistoryError(`Неожиданная ошибка: ${error.message || 'Неизвестная ошибка'}`);
-      setClearingHistory(false);
-    }
   };
 
   const handleClearPeriod = async () => {
@@ -2782,79 +2721,76 @@ export default function SetupPage() {
           <h2 className="mb-4 text-lg font-semibold text-red-900">Опасная зона</h2>
           <div className="space-y-3">
             <div>
-              <p className="mb-2 text-sm text-red-800">
-                Очистить всю историю операций. Все доходы, расходы и переводы будут удалены. Счета и категории сохранятся.
-              </p>
-              {clearHistorySuccess && (
-                <div className="mb-2 rounded-lg bg-green-50 px-3 py-2 text-sm text-green-700">
-                  {clearHistorySuccess}
-                </div>
+              {showPeriodDeletePanel ? (
+                <>
+                  <p className="mb-3 text-sm text-red-800">
+                    Удалит доходы/расходы/переводы в выбранном диапазоне дат. Счета и категории сохранятся.
+                  </p>
+                  {clearPeriodSuccess && (
+                    <div className="mb-2 rounded-lg bg-green-50 px-3 py-2 text-sm text-green-700">
+                      {clearPeriodSuccess}
+                    </div>
+                  )}
+                  {clearPeriodError && (
+                    <div className="mb-2 rounded-lg bg-red-100 px-3 py-2 text-sm text-red-700">
+                      {clearPeriodError}
+                    </div>
+                  )}
+                  <div className="mb-3 grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <label className="block text-xs font-medium text-red-900" htmlFor="date-from">
+                        Дата начала
+                      </label>
+                      <input
+                        id="date-from"
+                        type="date"
+                        value={dateFrom}
+                        onChange={(e) => setDateFrom(e.target.value)}
+                        disabled={clearingPeriod}
+                        className="w-full rounded-lg border border-red-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-red-500 focus:ring-2 focus:ring-red-200 disabled:cursor-not-allowed disabled:bg-red-100"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="block text-xs font-medium text-red-900" htmlFor="date-to">
+                        Дата окончания
+                      </label>
+                      <input
+                        id="date-to"
+                        type="date"
+                        value={dateTo}
+                        onChange={(e) => setDateTo(e.target.value)}
+                        disabled={clearingPeriod}
+                        className="w-full rounded-lg border border-red-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-red-500 focus:ring-2 focus:ring-red-200 disabled:cursor-not-allowed disabled:bg-red-100"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={handleClearPeriod}
+                      disabled={clearingPeriod}
+                      className="rounded-lg border-2 border-red-600 bg-red-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-red-700 hover:border-red-700 disabled:cursor-not-allowed disabled:bg-red-400 disabled:border-red-400"
+                    >
+                      {clearingPeriod ? 'Удаление...' : 'Очистить за период'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowPeriodDeletePanel(false)}
+                      className="rounded-lg border-2 border-red-300 bg-white px-4 py-2 text-sm font-medium text-red-700 transition hover:bg-red-50"
+                    >
+                      Скрыть
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setShowPeriodDeletePanel(true)}
+                  className="rounded-lg border-2 border-red-300 bg-white px-4 py-2 text-sm font-medium text-red-700 transition hover:bg-red-50"
+                >
+                  Удаление операций за период
+                </button>
               )}
-              {clearHistoryError && (
-                <div className="mb-2 rounded-lg bg-red-100 px-3 py-2 text-sm text-red-700">
-                  {clearHistoryError}
-                </div>
-              )}
-              <button
-                type="button"
-                onClick={handleClearHistory}
-                disabled={clearingHistory}
-                className="rounded-lg border-2 border-red-600 bg-red-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-red-700 hover:border-red-700 disabled:cursor-not-allowed disabled:bg-red-400 disabled:border-red-400"
-              >
-                {clearingHistory ? 'Удаление...' : 'Очистить всю историю операций'}
-              </button>
-            </div>
-
-            <div className="border-t border-red-200 pt-4">
-              <p className="mb-3 text-sm text-red-800">
-                Удалит доходы/расходы/переводы в выбранном диапазоне дат. Счета и категории сохранятся.
-              </p>
-              {clearPeriodSuccess && (
-                <div className="mb-2 rounded-lg bg-green-50 px-3 py-2 text-sm text-green-700">
-                  {clearPeriodSuccess}
-                </div>
-              )}
-              {clearPeriodError && (
-                <div className="mb-2 rounded-lg bg-red-100 px-3 py-2 text-sm text-red-700">
-                  {clearPeriodError}
-                </div>
-              )}
-              <div className="mb-3 grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="block text-xs font-medium text-red-900" htmlFor="date-from">
-                    Дата начала
-                  </label>
-                  <input
-                    id="date-from"
-                    type="date"
-                    value={dateFrom}
-                    onChange={(e) => setDateFrom(e.target.value)}
-                    disabled={clearingPeriod}
-                    className="w-full rounded-lg border border-red-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-red-500 focus:ring-2 focus:ring-red-200 disabled:cursor-not-allowed disabled:bg-red-100"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="block text-xs font-medium text-red-900" htmlFor="date-to">
-                    Дата окончания
-                  </label>
-                  <input
-                    id="date-to"
-                    type="date"
-                    value={dateTo}
-                    onChange={(e) => setDateTo(e.target.value)}
-                    disabled={clearingPeriod}
-                    className="w-full rounded-lg border border-red-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-red-500 focus:ring-2 focus:ring-red-200 disabled:cursor-not-allowed disabled:bg-red-100"
-                  />
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={handleClearPeriod}
-                disabled={clearingPeriod}
-                className="rounded-lg border-2 border-red-600 bg-red-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-red-700 hover:border-red-700 disabled:cursor-not-allowed disabled:bg-red-400 disabled:border-red-400"
-              >
-                {clearingPeriod ? 'Удаление...' : 'Очистить за период'}
-              </button>
             </div>
           </div>
         </section>
