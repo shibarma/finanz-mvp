@@ -2,6 +2,16 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 
+type RefreshError = {
+  scope?: string;
+  position_id?: string;
+  symbol?: string;
+  status?: number;
+  reason: string;
+  body?: string;
+  error?: string;
+};
+
 interface PositionWithInstrumentRow {
   id: string;
   user_id: string;
@@ -38,7 +48,7 @@ export interface RefreshPricesSummary {
   skipped: number;
   fxUpdated: boolean;
   fxSkipped: boolean;
-  errors: JsonValue[];
+  errors: RefreshError[];
 }
 
 const MIN_QUOTE_DELAY_MS = 150;
@@ -249,14 +259,26 @@ export async function refreshPricesEngine(
     }
 
     if (!quoteResult.ok) {
-      summary.skipped += 1;
-      summary.errors.push({
+      const bodyValue =
+        typeof quoteResult.body === 'string'
+          ? quoteResult.body
+          : quoteResult.body != null
+          ? JSON.stringify(quoteResult.body)
+          : undefined;
+
+      const errorItem: RefreshError = {
         position_id: position.id,
-        symbol,
+        symbol: String(symbol),
         status: quoteResult.status,
         reason: quoteResult.reason,
-        body: quoteResult.body,
-      });
+      };
+
+      if (bodyValue !== undefined) {
+        errorItem.body = bodyValue;
+      }
+
+      summary.skipped += 1;
+      summary.errors.push(errorItem);
       continue;
     }
 
