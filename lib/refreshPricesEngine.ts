@@ -5,6 +5,7 @@ type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string
 type RefreshError = {
   scope?: string;
   position_id?: string;
+  user_id?: string;
   symbol?: string;
   status?: number;
   reason: string;
