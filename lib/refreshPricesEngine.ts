@@ -13,6 +13,23 @@ type RefreshError = {
   error?: string;
 };
 
+function getBaseUrl(): string {
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL;
+  if (siteUrl) {
+    return siteUrl;
+  }
+
+  const vercelUrl = process.env.VERCEL_URL;
+  if (vercelUrl) {
+    if (vercelUrl.startsWith('http://') || vercelUrl.startsWith('https://')) {
+      return vercelUrl;
+    }
+    return `https://${vercelUrl}`;
+  }
+
+  return 'http://localhost:3000';
+}
+
 interface PositionWithInstrumentRow {
   id: string;
   user_id: string;
@@ -73,10 +90,10 @@ interface QuoteFailure {
 
 type QuoteResult = QuoteSuccess | QuoteFailure;
 
-async function fetchQuoteWithRetry(symbol: string): Promise<QuoteResult> {
+async function fetchQuoteWithRetry(baseUrl: string, symbol: string): Promise<QuoteResult> {
   const maxRetries = 3;
   const backoffs = [1000, 2000, 4000];
-  const url = `/api/market/quote?symbol=${encodeURIComponent(symbol)}`;
+  const url = `${baseUrl}/api/market/quote?symbol=${encodeURIComponent(symbol)}`;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
@@ -186,6 +203,7 @@ export async function refreshPricesEngine(
   };
 
   const supabaseAdmin = createAdminClient();
+  const baseUrl = getBaseUrl();
   const quoteCache = new Map<string, QuoteResult>();
   let lastQuoteRequestAt: number | null = null;
 
@@ -255,7 +273,7 @@ export async function refreshPricesEngine(
       }
 
       lastQuoteRequestAt = Date.now();
-      quoteResult = await fetchQuoteWithRetry(symbol);
+      quoteResult = await fetchQuoteWithRetry(baseUrl, symbol);
       quoteCache.set(symbol, quoteResult);
     }
 
