@@ -41,6 +41,107 @@ export interface RefreshPricesSummary {
   errors: JsonValue[];
 }
 
+const MIN_QUOTE_DELAY_MS = 150;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+interface QuoteSuccess {
+  ok: true;
+  price: number;
+  fetched_at: string;
+}
+
+interface QuoteFailure {
+  ok: false;
+  status: number;
+  reason: string;
+  body?: JsonValue;
+}
+
+type QuoteResult = QuoteSuccess | QuoteFailure;
+
+async function fetchQuoteWithRetry(symbol: string): Promise<QuoteResult> {
+  const maxRetries = 3;
+  const backoffs = [1000, 2000, 4000];
+  const url = `/api/market/quote?symbol=${encodeURIComponent(symbol)}`;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const res = await fetch(url);
+
+      let bodyText = '';
+      let data: any = null;
+      try {
+        bodyText = await res.text();
+        data = bodyText ? JSON.parse(bodyText) : null;
+      } catch {
+        // If we cannot parse JSON, still keep body snippet for diagnostics
+      }
+
+      if (res.status === 429) {
+        if (attempt < maxRetries) {
+          const delay = backoffs[attempt] ?? backoffs[backoffs.length - 1];
+          await sleep(delay);
+          continue;
+        }
+
+        return {
+          ok: false,
+          status: res.status,
+          reason: 'Rate limit (429) — will retry later',
+          body: bodyText.slice(0, 300),
+        };
+      }
+
+      if (!res.ok || !data?.ok) {
+        return {
+          ok: false,
+          status: res.status,
+          reason: (data && typeof data.error === 'string' && data.error) || 'Quote request failed',
+          body: (bodyText || JSON.stringify(data || {})).slice(0, 300),
+        };
+      }
+
+      const price = data.price;
+      const fetchedAt: string = data.fetched_at || new Date().toISOString();
+
+      if (typeof price !== 'number' || !Number.isFinite(price) || price <= 0) {
+        return {
+          ok: false,
+          status: res.status,
+          reason: 'Invalid or missing price',
+          body: (bodyText || JSON.stringify(data || {})).slice(0, 300),
+        };
+      }
+
+      return { ok: true, price, fetched_at: fetchedAt };
+    } catch (err) {
+      if (attempt < maxRetries) {
+        const delay = backoffs[attempt] ?? backoffs[backoffs.length - 1];
+        await sleep(delay);
+        continue;
+      }
+
+      return {
+        ok: false,
+        status: 0,
+        reason:
+          err instanceof Error
+            ? `Network or unexpected error while fetching quote: ${err.message}`
+            : 'Network or unexpected error while fetching quote',
+      };
+    }
+  }
+
+  return {
+    ok: false,
+    status: 0,
+    reason: 'Unknown quote error',
+  };
+}
+
 function createAdminClient(): SupabaseClient {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -74,7 +175,8 @@ export async function refreshPricesEngine(
   };
 
   const supabaseAdmin = createAdminClient();
-  const finnhubApiKey = process.env.FINNHUB_API_KEY;
+  const quoteCache = new Map<string, QuoteResult>();
+  let lastQuoteRequestAt: number | null = null;
 
   // --- A) Load positions for this user ---
   const { data: positions, error: positionsError } = await supabaseAdmin
@@ -130,83 +232,36 @@ export async function refreshPricesEngine(
 
     const symbol = providerSymbol.toUpperCase();
 
-    if (!finnhubApiKey) {
+    let quoteResult = quoteCache.get(symbol);
+
+    if (!quoteResult) {
+      const now = Date.now();
+      if (lastQuoteRequestAt !== null) {
+        const elapsed = now - lastQuoteRequestAt;
+        if (elapsed < MIN_QUOTE_DELAY_MS) {
+          await sleep(MIN_QUOTE_DELAY_MS - elapsed);
+        }
+      }
+
+      lastQuoteRequestAt = Date.now();
+      quoteResult = await fetchQuoteWithRetry(symbol);
+      quoteCache.set(symbol, quoteResult);
+    }
+
+    if (!quoteResult.ok) {
       summary.skipped += 1;
       summary.errors.push({
         position_id: position.id,
         symbol,
-        reason: 'FINNHUB_API_KEY not configured',
+        status: quoteResult.status,
+        reason: quoteResult.reason,
+        body: quoteResult.body,
       });
       continue;
     }
 
-    const quoteUrl = `https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(symbol)}&token=${finnhubApiKey}`;
-
-    let price: number | null = null;
-    let fetchedAt: string | null = null;
-
-    try {
-      const quoteResponse = await fetch(quoteUrl);
-
-      let finnhubData: any = null;
-      let bodyText = '';
-      try {
-        bodyText = await quoteResponse.text();
-        finnhubData = JSON.parse(bodyText);
-      } catch {
-        summary.skipped += 1;
-        summary.errors.push({
-          position_id: position.id,
-          symbol,
-          status: quoteResponse.status,
-          reason: 'Failed to parse quote response JSON',
-          body: bodyText.slice(0, 300),
-        });
-        continue;
-      }
-
-      if (!quoteResponse.ok) {
-        const bodyText = JSON.stringify(finnhubData).slice(0, 300);
-        summary.skipped += 1;
-        summary.errors.push({
-          position_id: position.id,
-          symbol,
-          status: quoteResponse.status,
-          reason: 'Quote request failed',
-          body: bodyText,
-        });
-        continue;
-      }
-
-      const rawPrice = finnhubData?.c;
-      if (
-        typeof rawPrice !== 'number' ||
-        !Number.isFinite(rawPrice) ||
-        rawPrice <= 0
-      ) {
-        summary.skipped += 1;
-        summary.errors.push({
-          position_id: position.id,
-          symbol,
-          status: quoteResponse.status,
-          reason: 'Invalid or missing price (finnhubData.c)',
-          body: JSON.stringify(finnhubData).slice(0, 300),
-        });
-        continue;
-      }
-
-      price = rawPrice;
-      fetchedAt = new Date().toISOString();
-    } catch (err) {
-      summary.skipped += 1;
-      summary.errors.push({
-        position_id: position.id,
-        symbol,
-        reason: 'Network or unexpected error while fetching quote',
-        error: err instanceof Error ? err.message : 'Unknown error',
-      });
-      continue;
-    }
+    const price = quoteResult.price;
+    const fetchedAt = quoteResult.fetched_at;
 
     if (price === null || fetchedAt === null) {
       summary.skipped += 1;
