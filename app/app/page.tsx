@@ -185,6 +185,9 @@ export default function FinanceAppPage() {
   const [operationsCategoryFilter, setOperationsCategoryFilter] = useState<string>('all');
   const [operationsTypeFilter, setOperationsTypeFilter] = useState<'all' | 'income' | 'expense' | 'transfer'>('all');
 
+  // Фильтр видимости счетов в блоке Accounts (только отображение, не влияет на формы)
+  const [hiddenAccountIds, setHiddenAccountIds] = useState<Set<string>>(new Set());
+
   // Редактирование транзакций
   const [editingOperation, setEditingOperation] = useState<{
     id: string;
@@ -271,6 +274,10 @@ export default function FinanceAppPage() {
     () => accounts.filter((a) => a.kind === 'broker'),
     [accounts],
   );
+  const visibleAccounts = useMemo(
+    () => accounts.filter((a) => !hiddenAccountIds.has(a.id)),
+    [accounts, hiddenAccountIds],
+  );
   const positionsByBroker = useMemo(
     () => (investBroker ? positions.filter((p) => p.broker_account_id === investBroker) : []),
     [positions, investBroker],
@@ -330,6 +337,51 @@ export default function FinanceAppPage() {
   useEffect(() => {
     setOperationsPage(0);
   }, [operationsAccountFilter, operationsCategoryFilter, operationsTypeFilter]);
+
+  // Hydrate account visibility filter from localStorage on mount
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const raw = window.localStorage.getItem('finanz_visible_accounts');
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as { visible?: string[]; known?: string[] };
+      const visible = parsed.visible || [];
+      const known = parsed.known || [];
+      if (!Array.isArray(visible) || !Array.isArray(known)) return;
+      setHiddenAccountIds(new Set(known.filter((id: string) => !visible.includes(id))));
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  // Persist account visibility filter to localStorage
+  useEffect(() => {
+    if (typeof window === 'undefined' || accounts.length === 0) return;
+    try {
+      const visible = accounts.filter((a) => !hiddenAccountIds.has(a.id)).map((a) => a.id);
+      const known = accounts.map((a) => a.id);
+      window.localStorage.setItem('finanz_visible_accounts', JSON.stringify({ visible, known }));
+    } catch {
+      // ignore
+    }
+  }, [accounts, hiddenAccountIds]);
+
+  const toggleAccountVisibility = (accountId: string) => {
+    setHiddenAccountIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(accountId)) {
+        next.delete(accountId);
+      } else {
+        next.add(accountId);
+      }
+      return next;
+    });
+  };
+
+  const selectAllAccounts = () => setHiddenAccountIds(new Set());
+  const clearAccountsFilter = () => setHiddenAccountIds(new Set());
+
+  const [accountsFilterOpen, setAccountsFilterOpen] = useState(false);
 
   const loadAccounts = async () => {
     const { data, error: fetchError } = await supabase
@@ -2142,12 +2194,63 @@ export default function FinanceAppPage() {
 
         {/* Accounts list */}
         <section className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">
-          <h2 className="mb-4 text-lg font-semibold text-neutral-900">Счета</h2>
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-lg font-semibold text-neutral-900">Счета</h2>
+            {accounts.length > 0 && (
+              <div className="flex items-center gap-2">
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setAccountsFilterOpen((o) => !o)}
+                    className="rounded-lg border border-neutral-300 px-3 py-1.5 text-xs font-medium text-neutral-700 transition hover:bg-neutral-100"
+                  >
+                    Фильтр счетов
+                  </button>
+                  {accountsFilterOpen && (
+                  <div className="absolute right-0 top-full z-10 mt-1 min-w-[200px] rounded-lg border border-neutral-200 bg-white py-2 shadow-lg">
+                    <div className="max-h-48 overflow-y-auto px-3 py-1">
+                      {accounts.map((acc) => (
+                        <label
+                          key={acc.id}
+                          className="flex cursor-pointer items-center gap-2 py-1.5 text-sm text-neutral-800 hover:bg-neutral-50"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={!hiddenAccountIds.has(acc.id)}
+                            onChange={() => toggleAccountVisibility(acc.id)}
+                            className="h-4 w-4 rounded border-neutral-300"
+                          />
+                          <span>{acc.name}</span>
+                        </label>
+                      ))}
+                    </div>
+                    <div className="mt-2 flex gap-2 border-t border-neutral-100 px-3 pt-2">
+                      <button
+                        type="button"
+                        onClick={selectAllAccounts}
+                        className="rounded px-2 py-1 text-xs font-medium text-neutral-600 hover:bg-neutral-100"
+                      >
+                        Выбрать все
+                      </button>
+                      <button
+                        type="button"
+                        onClick={clearAccountsFilter}
+                        className="rounded px-2 py-1 text-xs font-medium text-neutral-600 hover:bg-neutral-100"
+                      >
+                        Сбросить
+                      </button>
+                    </div>
+                  </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
           {accounts.length === 0 ? (
             <p className="text-sm text-neutral-600">Нет счетов. Создайте счёт в настройках.</p>
           ) : (
             <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-              {accounts.map((account) => {
+              {visibleAccounts.map((account) => {
                 const accBalance = accountBalances.get(account.id);
                 if (!accBalance) return null;
 
