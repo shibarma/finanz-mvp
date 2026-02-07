@@ -65,6 +65,27 @@ interface PositionWithInstrument extends Position {
   instrument: Instrument;
 }
 
+interface Budget {
+  id: string;
+  user_id: string;
+  name: string;
+  base_limit_eur: number;
+  start_date: string;
+  carry_over: boolean;
+  created_at: string;
+}
+
+// Parse base_limit_eur: accepts "," and "." as decimal separator, rounds to 2 decimals
+function parseBaseLimitEur(input: string): { ok: true; value: number } | { ok: false; error: string } {
+  if (!input || !input.trim()) return { ok: false, error: 'Введите сумму.' };
+  const normalized = input.trim().replace(/,/g, '.');
+  const num = Number(normalized);
+  if (Number.isNaN(num)) return { ok: false, error: 'Некорректное число.' };
+  const rounded = Math.round(num * 100) / 100;
+  if (rounded <= 0) return { ok: false, error: 'Лимит должен быть больше 0.' };
+  return { ok: true, value: rounded };
+}
+
 // Простой helper, чтобы переиспользовать в будущем
 async function requireSessionOrRedirect(router: ReturnType<typeof useRouter>) {
   const session = await getSession();
@@ -175,6 +196,29 @@ export default function SetupPage() {
   const [positionEditSubmitting, setPositionEditSubmitting] = useState(false);
   const [positionEditError, setPositionEditError] = useState<string | null>(null);
   const [positionDeleteError, setPositionDeleteError] = useState<string | null>(null);
+
+  // Budgets
+  const [budgets, setBudgets] = useState<Budget[]>([]);
+  const [budgetCategoriesMap, setBudgetCategoriesMap] = useState<Map<string, string[]>>(new Map());
+  const [budgetsLoading, setBudgetsLoading] = useState(false);
+  const [budgetsError, setBudgetsError] = useState<string | null>(null);
+  const [budgetSuccess, setBudgetSuccess] = useState<string | null>(null);
+  const [budgetName, setBudgetName] = useState('');
+  const [budgetBaseLimitEur, setBudgetBaseLimitEur] = useState('');
+  const [budgetStartDate, setBudgetStartDate] = useState('');
+  const [budgetCarryOver, setBudgetCarryOver] = useState(false);
+  const [budgetSelectedCategories, setBudgetSelectedCategories] = useState<Set<string>>(new Set());
+  const [budgetSubmitting, setBudgetSubmitting] = useState(false);
+  const [budgetFormError, setBudgetFormError] = useState<string | null>(null);
+  const [editingBudgetId, setEditingBudgetId] = useState<string | null>(null);
+  const [editBudgetName, setEditBudgetName] = useState('');
+  const [editBudgetBaseLimitEur, setEditBudgetBaseLimitEur] = useState('');
+  const [editBudgetStartDate, setEditBudgetStartDate] = useState('');
+  const [editBudgetCarryOver, setEditBudgetCarryOver] = useState(false);
+  const [editBudgetSelectedCategories, setEditBudgetSelectedCategories] = useState<Set<string>>(new Set());
+  const [budgetEditSubmitting, setBudgetEditSubmitting] = useState(false);
+  const [budgetEditError, setBudgetEditError] = useState<string | null>(null);
+  const [budgetDeleteError, setBudgetDeleteError] = useState<string | null>(null);
 
   const debitAccounts = useMemo(
     () => accounts.filter((a) => a.kind === 'debit'),
@@ -314,7 +358,7 @@ export default function SetupPage() {
       const accessToken = (session as { access_token?: string }).access_token;
       setSessionToken(accessToken || null);
       setSessionChecked(true);
-      await Promise.all([loadAccounts(), loadCategories()]);
+      await Promise.all([loadAccounts(), loadCategories(), loadBudgets()]);
     };
 
     init();
@@ -425,6 +469,63 @@ export default function SetupPage() {
     });
 
     setCategories(sorted as Category[]);
+  };
+
+  const loadBudgets = async () => {
+    const session = await getSession();
+    if (!session?.user?.id) return;
+
+    setBudgetsLoading(true);
+    setBudgetsError(null);
+
+    try {
+      const { data: budgetsData, error: budgetsError } = await supabase
+        .from('budgets')
+        .select('id, user_id, name, base_limit_eur, start_date, carry_over, created_at')
+        .eq('user_id', session.user.id)
+        .order('created_at', { ascending: true });
+
+      if (budgetsError) {
+        setBudgetsError(budgetsError.message);
+        setBudgetsLoading(false);
+        return;
+      }
+
+      const budgetList = (budgetsData || []) as Budget[];
+      setBudgets(budgetList);
+
+      if (budgetList.length === 0) {
+        setBudgetCategoriesMap(new Map());
+        setBudgetsLoading(false);
+        return;
+      }
+
+      const { data: bcData, error: bcError } = await supabase
+        .from('budget_categories')
+        .select('budget_id, category_id')
+        .in('budget_id', budgetList.map((b) => b.id));
+
+      if (bcError) {
+        setBudgetsError(bcError.message);
+        setBudgetsLoading(false);
+        return;
+      }
+
+      const map = new Map<string, string[]>();
+      for (const b of budgetList) {
+        map.set(b.id, []);
+      }
+      for (const row of bcData || []) {
+        const arr = map.get((row as { budget_id: string; category_id: string }).budget_id) || [];
+        arr.push((row as { budget_id: string; category_id: string }).category_id);
+        map.set((row as { budget_id: string; category_id: string }).budget_id, arr);
+      }
+      setBudgetCategoriesMap(map);
+    } catch (err) {
+      setBudgetsError(err instanceof Error ? err.message : 'Failed to load budgets');
+    } finally {
+      setBudgetsLoading(false);
+    }
   };
 
   const setDefault = async (kind: 'income' | 'expense', accountId: string, value: boolean) => {
@@ -1037,6 +1138,200 @@ export default function SetupPage() {
     router.replace('/login');
   };
 
+  const handleCreateBudget = async (e: FormEvent) => {
+    e.preventDefault();
+    const session = await getSession();
+    if (!session?.user?.id) return;
+
+    setBudgetFormError(null);
+    setBudgetSuccess(null);
+
+    if (!budgetName.trim()) {
+      setBudgetFormError('Название бюджета обязательно.');
+      return;
+    }
+
+    const parsed = parseBaseLimitEur(budgetBaseLimitEur);
+    if (!parsed.ok) {
+      setBudgetFormError(parsed.error);
+      return;
+    }
+
+    if (!budgetStartDate.trim()) {
+      setBudgetFormError('Дата начала обязательна.');
+      return;
+    }
+
+    if (budgetSelectedCategories.size === 0) {
+      setBudgetFormError('Выберите хотя бы одну категорию расхода.');
+      return;
+    }
+
+    setBudgetSubmitting(true);
+
+    try {
+      const { data: newBudget, error: budgetError } = await supabase
+        .from('budgets')
+        .insert({
+          user_id: session.user.id,
+          name: budgetName.trim(),
+          base_limit_eur: parsed.value,
+          start_date: budgetStartDate,
+          carry_over: budgetCarryOver,
+        })
+        .select()
+        .single();
+
+      if (budgetError) {
+        setBudgetFormError(budgetError.message);
+        setBudgetSubmitting(false);
+        return;
+      }
+
+      if (newBudget) {
+        const inserts = Array.from(budgetSelectedCategories).map((categoryId) => ({
+          user_id: session.user.id,
+          budget_id: (newBudget as Budget).id,
+          category_id: categoryId,
+        }));
+        const { error: bcError } = await supabase.from('budget_categories').insert(inserts);
+
+        if (bcError) {
+          setBudgetFormError(bcError.message);
+          setBudgetSubmitting(false);
+          return;
+        }
+      }
+
+      setBudgetName('');
+      setBudgetBaseLimitEur('');
+      setBudgetStartDate('');
+      setBudgetCarryOver(false);
+      setBudgetSelectedCategories(new Set());
+      setBudgetSuccess('Бюджет создан.');
+      await loadBudgets();
+    } finally {
+      setBudgetSubmitting(false);
+    }
+  };
+
+  const startEditBudget = (budget: Budget) => {
+    setEditingBudgetId(budget.id);
+    setEditBudgetName(budget.name);
+    setEditBudgetBaseLimitEur(budget.base_limit_eur.toFixed(2));
+    setEditBudgetStartDate(budget.start_date.slice(0, 10));
+    setEditBudgetCarryOver(budget.carry_over);
+    setEditBudgetSelectedCategories(new Set(budgetCategoriesMap.get(budget.id) || []));
+    setBudgetEditError(null);
+  };
+
+  const cancelEditBudget = () => {
+    setEditingBudgetId(null);
+    setEditBudgetName('');
+    setEditBudgetBaseLimitEur('');
+    setEditBudgetStartDate('');
+    setEditBudgetCarryOver(false);
+    setEditBudgetSelectedCategories(new Set());
+    setBudgetEditError(null);
+  };
+
+  const handleUpdateBudget = async () => {
+    if (!editingBudgetId) return;
+
+    const session = await getSession();
+    if (!session?.user?.id) return;
+
+    setBudgetEditError(null);
+    setBudgetSuccess(null);
+
+    if (!editBudgetName.trim()) {
+      setBudgetEditError('Название бюджета обязательно.');
+      return;
+    }
+
+    const parsed = parseBaseLimitEur(editBudgetBaseLimitEur);
+    if (!parsed.ok) {
+      setBudgetEditError(parsed.error);
+      return;
+    }
+
+    if (!editBudgetStartDate.trim()) {
+      setBudgetEditError('Дата начала обязательна.');
+      return;
+    }
+
+    if (editBudgetSelectedCategories.size === 0) {
+      setBudgetEditError('Выберите хотя бы одну категорию расхода.');
+      return;
+    }
+
+    setBudgetEditSubmitting(true);
+
+    try {
+      const { error: updateError } = await supabase
+        .from('budgets')
+        .update({
+          name: editBudgetName.trim(),
+          base_limit_eur: parsed.value,
+          start_date: editBudgetStartDate,
+          carry_over: editBudgetCarryOver,
+        })
+        .eq('id', editingBudgetId);
+
+      if (updateError) {
+        setBudgetEditError(updateError.message);
+        setBudgetEditSubmitting(false);
+        return;
+      }
+
+      await supabase.from('budget_categories').delete().eq('budget_id', editingBudgetId);
+
+      const inserts = Array.from(editBudgetSelectedCategories).map((categoryId) => ({
+        user_id: session.user.id,
+        budget_id: editingBudgetId,
+        category_id: categoryId,
+      }));
+      const { error: bcError } = await supabase.from('budget_categories').insert(inserts);
+
+      if (bcError) {
+        setBudgetEditError(bcError.message);
+        setBudgetEditSubmitting(false);
+        return;
+      }
+
+      setBudgetSuccess('Бюджет обновлён.');
+      cancelEditBudget();
+      await loadBudgets();
+    } finally {
+      setBudgetEditSubmitting(false);
+    }
+  };
+
+  const handleDeleteBudget = async (budgetId: string) => {
+    if (!window.confirm('Вы уверены, что хотите удалить этот бюджет?')) return;
+
+    setBudgetDeleteError(null);
+    setBudgetSuccess(null);
+
+    const { error: bcError } = await supabase.from('budget_categories').delete().eq('budget_id', budgetId);
+
+    if (bcError) {
+      setBudgetDeleteError(bcError.message);
+      return;
+    }
+
+    const { error: budgetError } = await supabase.from('budgets').delete().eq('id', budgetId);
+
+    if (budgetError) {
+      setBudgetDeleteError(budgetError.message);
+      return;
+    }
+
+    setBudgetSuccess('Бюджет удалён.');
+    cancelEditBudget();
+    await loadBudgets();
+  };
+
   const handleClearPeriod = async () => {
     // Валидация
     if (!dateFrom || !dateTo) {
@@ -1121,6 +1416,16 @@ export default function SetupPage() {
     () => accounts.filter((a) => a.kind === 'broker'),
     [accounts],
   );
+
+  // Map category_id -> budget name (for "already in X" display)
+  const categoryToBudgetMap = useMemo(() => {
+    const map = new Map<string, string>();
+    budgets.forEach((b) => {
+      const catIds = budgetCategoriesMap.get(b.id) || [];
+      catIds.forEach((cid) => map.set(cid, b.name));
+    });
+    return map;
+  }, [budgets, budgetCategoriesMap]);
 
   const loadPositions = async () => {
     if (!selectedBrokerAccountId || !userId) {
@@ -2362,6 +2667,301 @@ export default function SetupPage() {
             </form>
           </section>
         </main>
+
+        {/* Budgets block */}
+        <section className="flex flex-col gap-4 rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-neutral-900">Budgets</h2>
+            {budgetsLoading && <span className="text-xs text-neutral-500">Загрузка...</span>}
+          </div>
+
+          {budgetsError && (
+            <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{budgetsError}</div>
+          )}
+
+          {budgetSuccess && (
+            <div className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{budgetSuccess}</div>
+          )}
+
+          {budgetDeleteError && (
+            <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{budgetDeleteError}</div>
+          )}
+
+          <div className="space-y-4">
+            {budgets.map((budget) => (
+              <div
+                key={budget.id}
+                className="rounded-lg border border-neutral-200 bg-neutral-50 p-4"
+              >
+                {editingBudgetId === budget.id ? (
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-sm font-semibold text-neutral-900">Редактирование бюджета</h4>
+                      <button
+                        type="button"
+                        onClick={cancelEditBudget}
+                        className="text-xs text-neutral-600 hover:text-neutral-900"
+                      >
+                        ✕
+                      </button>
+                    </div>
+
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="space-y-1">
+                        <label className="block text-xs font-medium text-neutral-700">Название</label>
+                        <input
+                          type="text"
+                          value={editBudgetName}
+                          onChange={(e) => setEditBudgetName(e.target.value)}
+                          className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="block text-xs font-medium text-neutral-700">Лимит (EUR)</label>
+                        <input
+                          type="text"
+                          value={editBudgetBaseLimitEur}
+                          onChange={(e) => setEditBudgetBaseLimitEur(e.target.value)}
+                          placeholder="500,00 или 500.00"
+                          className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="block text-xs font-medium text-neutral-700">Дата начала</label>
+                        <input
+                          type="date"
+                          value={editBudgetStartDate}
+                          onChange={(e) => setEditBudgetStartDate(e.target.value)}
+                          className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                        />
+                      </div>
+                      <div className="flex items-center gap-2 pt-8">
+                        <input
+                          type="checkbox"
+                          id={`edit-carry-over-${budget.id}`}
+                          checked={editBudgetCarryOver}
+                          onChange={(e) => setEditBudgetCarryOver(e.target.checked)}
+                          className="h-4 w-4 rounded border-neutral-300"
+                        />
+                        <label htmlFor={`edit-carry-over-${budget.id}`} className="text-sm text-neutral-700">
+                          Перенос остатка
+                        </label>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="block text-xs font-medium text-neutral-700">Категории расходов</label>
+                      <div className="max-h-40 space-y-1 overflow-auto rounded-lg border border-neutral-200 p-2">
+                        {expenseCategories.length === 0 ? (
+                          <p className="text-xs text-neutral-500">Нет категорий расходов.</p>
+                        ) : (
+                          expenseCategories.map((cat) => {
+                            const assignedTo = categoryToBudgetMap.get(cat.id);
+                            const isInOtherBudget = assignedTo && assignedTo !== budget.name;
+                            const isChecked = editBudgetSelectedCategories.has(cat.id);
+                            return (
+                              <label
+                                key={cat.id}
+                                className={`flex items-center gap-2 ${isInOtherBudget ? 'cursor-not-allowed opacity-60' : ''}`}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={isChecked}
+                                  disabled={!!isInOtherBudget}
+                                  onChange={(e) => {
+                                    if (isInOtherBudget) return;
+                                    setEditBudgetSelectedCategories((prev) => {
+                                      const next = new Set(prev);
+                                      if (e.target.checked) next.add(cat.id);
+                                      else next.delete(cat.id);
+                                      return next;
+                                    });
+                                  }}
+                                  className="h-4 w-4 rounded border-neutral-300"
+                                />
+                                <span className="text-sm">
+                                  {cat.name}
+                                  {isInOtherBudget && (
+                                    <span className="ml-1 text-neutral-500">(уже в {assignedTo})</span>
+                                  )}
+                                </span>
+                              </label>
+                            );
+                          })
+                        )}
+                      </div>
+                    </div>
+
+                    {budgetEditError && (
+                      <div className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{budgetEditError}</div>
+                    )}
+
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={handleUpdateBudget}
+                        disabled={budgetEditSubmitting}
+                        className="rounded-lg bg-neutral-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:bg-neutral-400"
+                      >
+                        {budgetEditSubmitting ? 'Сохранение...' : 'Сохранить'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={cancelEditBudget}
+                        className="rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-800 transition hover:bg-neutral-100"
+                      >
+                        Отмена
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <h4 className="font-semibold text-neutral-900">{budget.name}</h4>
+                      <p className="text-sm text-neutral-600">
+                        {budget.base_limit_eur.toFixed(2)} € · с {budget.start_date.slice(0, 10)} ·{' '}
+                        {budget.carry_over ? 'перенос остатка' : 'без переноса'}
+                      </p>
+                      {((budgetCategoriesMap.get(budget.id) || []).length > 0) && (
+                        <p className="mt-1 text-xs text-neutral-500">
+                          Категории: {(budgetCategoriesMap.get(budget.id) || []).map((cid) => categories.find((c) => c.id === cid)?.name || cid).join(', ')}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => startEditBudget(budget)}
+                        className="rounded-lg border border-neutral-300 px-3 py-1.5 text-sm font-medium text-neutral-800 transition hover:bg-neutral-100"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteBudget(budget.id)}
+                        className="rounded-lg border border-red-300 px-3 py-1.5 text-sm font-medium text-red-700 transition hover:bg-red-50"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+
+          <form onSubmit={handleCreateBudget} className="mt-4 space-y-4 rounded-lg border border-neutral-200 p-4">
+            <h3 className="text-sm font-semibold text-neutral-900">Создать бюджет</h3>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1">
+                <label className="block text-xs font-medium text-neutral-700" htmlFor="budget-name">
+                  Название
+                </label>
+                <input
+                  id="budget-name"
+                  type="text"
+                  value={budgetName}
+                  onChange={(e) => setBudgetName(e.target.value)}
+                  placeholder="Например, Продукты"
+                  className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="block text-xs font-medium text-neutral-700" htmlFor="budget-limit">
+                  Лимит (EUR)
+                </label>
+                <input
+                  id="budget-limit"
+                  type="text"
+                  value={budgetBaseLimitEur}
+                  onChange={(e) => setBudgetBaseLimitEur(e.target.value)}
+                  placeholder="500,00 или 500.00"
+                  className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="block text-xs font-medium text-neutral-700" htmlFor="budget-start-date">
+                  Дата начала
+                </label>
+                <input
+                  id="budget-start-date"
+                  type="date"
+                  value={budgetStartDate}
+                  onChange={(e) => setBudgetStartDate(e.target.value)}
+                  className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                />
+              </div>
+              <div className="flex items-center gap-2 pt-8">
+                <input
+                  type="checkbox"
+                  id="budget-carry-over"
+                  checked={budgetCarryOver}
+                  onChange={(e) => setBudgetCarryOver(e.target.checked)}
+                  className="h-4 w-4 rounded border-neutral-300"
+                />
+                <label htmlFor="budget-carry-over" className="text-sm text-neutral-700">
+                  Перенос остатка
+                </label>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="block text-xs font-medium text-neutral-700">Категории расходов</label>
+              <div className="max-h-40 space-y-1 overflow-auto rounded-lg border border-neutral-200 p-2">
+                {expenseCategories.length === 0 ? (
+                  <p className="text-xs text-neutral-500">Создайте категории расходов.</p>
+                ) : (
+                  expenseCategories.map((cat) => {
+                    const assignedTo = categoryToBudgetMap.get(cat.id);
+                    const isInOtherBudget = !!assignedTo;
+                    const isChecked = budgetSelectedCategories.has(cat.id);
+                    return (
+                      <label
+                        key={cat.id}
+                        className={`flex items-center gap-2 ${isInOtherBudget ? 'cursor-not-allowed opacity-60' : ''}`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          disabled={isInOtherBudget}
+                          onChange={(e) => {
+                            if (isInOtherBudget) return;
+                            setBudgetSelectedCategories((prev) => {
+                              const next = new Set(prev);
+                              if (e.target.checked) next.add(cat.id);
+                              else next.delete(cat.id);
+                              return next;
+                            });
+                          }}
+                          className="h-4 w-4 rounded border-neutral-300"
+                        />
+                        <span className="text-sm">
+                          {cat.name}
+                          {isInOtherBudget && (
+                            <span className="ml-1 text-neutral-500">(уже в {assignedTo})</span>
+                          )}
+                        </span>
+                      </label>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            {budgetFormError && (
+              <div className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{budgetFormError}</div>
+            )}
+
+            <button
+              type="submit"
+              disabled={budgetSubmitting}
+              className="w-full rounded-lg bg-neutral-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:bg-neutral-400"
+            >
+              {budgetSubmitting ? 'Создание...' : 'Создать бюджет'}
+            </button>
+          </form>
+        </section>
 
         {/* Investments/Positions block */}
         <section className="flex flex-col gap-4 rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">
