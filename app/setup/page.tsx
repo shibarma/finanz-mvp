@@ -219,6 +219,7 @@ export default function SetupPage() {
   const [budgetEditSubmitting, setBudgetEditSubmitting] = useState(false);
   const [budgetEditError, setBudgetEditError] = useState<string | null>(null);
   const [budgetDeleteError, setBudgetDeleteError] = useState<string | null>(null);
+  const [categoryToBudgetIdsMap, setCategoryToBudgetIdsMap] = useState<Map<string, string[]>>(new Map());
 
   const debitAccounts = useMemo(
     () => accounts.filter((a) => a.kind === 'debit'),
@@ -496,6 +497,7 @@ export default function SetupPage() {
 
       if (budgetList.length === 0) {
         setBudgetCategoriesMap(new Map());
+        setCategoryToBudgetIdsMap(new Map());
         setBudgetsLoading(false);
         return;
       }
@@ -515,12 +517,19 @@ export default function SetupPage() {
       for (const b of budgetList) {
         map.set(b.id, []);
       }
+      const reverseMap = new Map<string, string[]>();
       for (const row of bcData || []) {
-        const arr = map.get((row as { budget_id: string; category_id: string }).budget_id) || [];
-        arr.push((row as { budget_id: string; category_id: string }).category_id);
-        map.set((row as { budget_id: string; category_id: string }).budget_id, arr);
+        const r = row as { budget_id: string; category_id: string };
+        const arr = map.get(r.budget_id) || [];
+        arr.push(r.category_id);
+        map.set(r.budget_id, arr);
+
+        const revArr = reverseMap.get(r.category_id) || [];
+        revArr.push(r.budget_id);
+        reverseMap.set(r.category_id, revArr);
       }
       setBudgetCategoriesMap(map);
+      setCategoryToBudgetIdsMap(reverseMap);
     } catch (err) {
       setBudgetsError(err instanceof Error ? err.message : 'Failed to load budgets');
     } finally {
@@ -1167,6 +1176,21 @@ export default function SetupPage() {
       return;
     }
 
+    // Validate: no selected category is assigned to another budget
+    const conflicting: string[] = [];
+    budgetSelectedCategories.forEach((catId) => {
+      const budgetIds = categoryToBudgetIdsMap.get(catId) || [];
+      if (budgetIds.length > 0) {
+        const catName = categories.find((c) => c.id === catId)?.name || catId;
+        const otherBudgets = budgetIds.map((bid) => budgets.find((b) => b.id === bid)?.name || bid).join(', ');
+        conflicting.push(`${catName} (в бюджетах: ${otherBudgets})`);
+      }
+    });
+    if (conflicting.length > 0) {
+      setBudgetFormError(`Категория уже назначена другому бюджету: ${conflicting.join('; ')}`);
+      return;
+    }
+
     setBudgetSubmitting(true);
 
     try {
@@ -1262,6 +1286,24 @@ export default function SetupPage() {
 
     if (editBudgetSelectedCategories.size === 0) {
       setBudgetEditError('Выберите хотя бы одну категорию расхода.');
+      return;
+    }
+
+    // Validate: no selected category is assigned to a different budget
+    const conflicting: string[] = [];
+    editBudgetSelectedCategories.forEach((catId) => {
+      const budgetIds = categoryToBudgetIdsMap.get(catId) || [];
+      const otherBudgetIds = budgetIds.filter((bid) => bid !== editingBudgetId);
+      if (otherBudgetIds.length > 0) {
+        const catName = categories.find((c) => c.id === catId)?.name || catId;
+        const otherBudgets = otherBudgetIds
+          .map((bid) => budgets.find((b) => b.id === bid)?.name || bid)
+          .join(', ');
+        conflicting.push(`${catName} (в бюджетах: ${otherBudgets})`);
+      }
+    });
+    if (conflicting.length > 0) {
+      setBudgetEditError(`Категория уже назначена другому бюджету: ${conflicting.join('; ')}`);
       return;
     }
 
@@ -1426,6 +1468,21 @@ export default function SetupPage() {
     });
     return map;
   }, [budgets, budgetCategoriesMap]);
+
+  // Duplicate categories: category_id -> [budget_ids]; if any has length > 1, build warning list
+  const budgetDuplicateWarning = useMemo(() => {
+    const list: Array<{ categoryName: string; budgetNames: string }> = [];
+    categoryToBudgetIdsMap.forEach((budgetIds, categoryId) => {
+      if (budgetIds.length > 1) {
+        const categoryName = categories.find((c) => c.id === categoryId)?.name || categoryId;
+        const budgetNames = budgetIds
+          .map((bid) => budgets.find((b) => b.id === bid)?.name || bid)
+          .join(', ');
+        list.push({ categoryName, budgetNames });
+      }
+    });
+    return list;
+  }, [categoryToBudgetIdsMap, categories, budgets]);
 
   const loadPositions = async () => {
     if (!selectedBrokerAccountId || !userId) {
@@ -2685,6 +2742,19 @@ export default function SetupPage() {
 
           {budgetDeleteError && (
             <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{budgetDeleteError}</div>
+          )}
+
+          {budgetDuplicateWarning.length > 0 && (
+            <div className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
+              <p className="font-medium">Конфликт: категория назначена нескольким бюджетам</p>
+              <ul className="mt-1 list-inside list-disc">
+                {budgetDuplicateWarning.map((item, i) => (
+                  <li key={i}>
+                    {item.categoryName} → {item.budgetNames}
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
 
           <div className="space-y-4">

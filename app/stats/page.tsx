@@ -92,6 +92,21 @@ interface FxRow {
   captured_date: string;
 }
 
+interface Budget {
+  id: string;
+  user_id: string;
+  name: string;
+  base_limit_eur: number;
+  start_date: string;
+  carry_over: boolean;
+  created_at: string;
+}
+
+interface BudgetCategoryRow {
+  budget_id: string;
+  category_id: string;
+}
+
 // Helper для форматирования денег в EUR
 const formatMoney = (amount: number): string => {
   return new Intl.NumberFormat('de-DE', {
@@ -145,6 +160,12 @@ export default function StatsPage() {
   const [investmentLoading, setInvestmentLoading] = useState(false);
   const [investmentError, setInvestmentError] = useState<string | null>(null);
 
+  // Budgets (read-only analytics)
+  const [budgets, setBudgets] = useState<Budget[]>([]);
+  const [budgetCategoriesMap, setBudgetCategoriesMap] = useState<Map<string, string[]>>(new Map());
+  const [budgetsLoading, setBudgetsLoading] = useState(false);
+  const [budgetsError, setBudgetsError] = useState<string | null>(null);
+
   useEffect(() => {
     const init = async () => {
       const session = await getSession();
@@ -170,6 +191,7 @@ export default function StatsPage() {
       await Promise.all([
         loadAccounts(),
         loadCategories(),
+        loadBudgets(session.user.id),
         loadTransactions(session.user.id, thirtyDaysAgo.toISOString(), today.toISOString()),
       ]);
     };
@@ -255,6 +277,61 @@ export default function StatsPage() {
     }
 
     setCategories((data || []) as Category[]);
+  };
+
+  const loadBudgets = async (uid: string) => {
+    setBudgetsLoading(true);
+    setBudgetsError(null);
+
+    try {
+      const { data: budgetsData, error: budgetsError } = await supabase
+        .from('budgets')
+        .select('id, user_id, name, base_limit_eur, start_date, carry_over, created_at')
+        .eq('user_id', uid)
+        .order('created_at', { ascending: true });
+
+      if (budgetsError) {
+        setBudgetsError(budgetsError.message);
+        setBudgetsLoading(false);
+        return;
+      }
+
+      const budgetList = (budgetsData || []) as Budget[];
+      setBudgets(budgetList);
+
+      if (budgetList.length === 0) {
+        setBudgetCategoriesMap(new Map());
+        setBudgetsLoading(false);
+        return;
+      }
+
+      const { data: bcData, error: bcError } = await supabase
+        .from('budget_categories')
+        .select('budget_id, category_id')
+        .in('budget_id', budgetList.map((b) => b.id));
+
+      if (bcError) {
+        setBudgetsError(bcError.message);
+        setBudgetsLoading(false);
+        return;
+      }
+
+      const map = new Map<string, string[]>();
+      for (const b of budgetList) {
+        map.set(b.id, []);
+      }
+      for (const row of bcData || []) {
+        const r = row as BudgetCategoryRow;
+        const arr = map.get(r.budget_id) || [];
+        arr.push(r.category_id);
+        map.set(r.budget_id, arr);
+      }
+      setBudgetCategoriesMap(map);
+    } catch (err) {
+      setBudgetsError(err instanceof Error ? err.message : 'Failed to load budgets');
+    } finally {
+      setBudgetsLoading(false);
+    }
   };
 
   const loadTransactions = async (uid: string, fromDate: string, toDate: string) => {
@@ -666,6 +743,150 @@ export default function StatsPage() {
     return top10;
   }, [transactions, categories, dateFrom, dateTo]);
 
+  // Budget analytics: spent per budget for the selected period
+  const budgetAnalytics = useMemo(() => {
+    if (!dateFrom || !dateTo || budgets.length === 0 || accounts.length === 0) {
+      return {
+        items: [] as Array<{
+          budget: Budget;
+          limit: number;
+          spent: number;
+          remaining: number;
+          windowStart: string;
+          windowEnd: string;
+        }>,
+        totalSpent: 0,
+        fxSkippedWarning: false,
+        duplicateCategoryWarning: false,
+      };
+    }
+
+    const from = new Date(dateFrom);
+    const to = new Date(dateTo);
+    to.setHours(23, 59, 59, 999);
+
+    const effectiveTo = dateTo || new Date().toISOString().split('T')[0];
+
+    // category_id -> budget_id (first budget wins; track duplicates)
+    const categoryToBudget = new Map<string, string>();
+    let duplicateCategoryWarning = false;
+    budgets.forEach((b) => {
+      const catIds = budgetCategoriesMap.get(b.id) || [];
+      catIds.forEach((cid) => {
+        if (categoryToBudget.has(cid)) {
+          duplicateCategoryWarning = true;
+        } else {
+          categoryToBudget.set(cid, b.id);
+        }
+      });
+    });
+
+    const fxSorted = [...fxRows].sort((a, b) => a.captured_date.localeCompare(b.captured_date));
+    const latestFxOverall = fxSorted.length > 0 ? fxSorted[fxSorted.length - 1].rate : null;
+    const getFxRate = (d: string): number | null => {
+      const candidates = fxSorted.filter((f) => f.captured_date <= d);
+      if (candidates.length > 0) return candidates[candidates.length - 1].rate;
+      return latestFxOverall;
+    };
+
+    const accountsById = new Map<string, Account>();
+    accounts.forEach((a) => accountsById.set(a.id, a));
+
+    let fxSkippedWarning = false;
+
+    const items: Array<{
+      budget: Budget;
+      limit: number;
+      spent: number;
+      remaining: number;
+      windowStart: string;
+      windowEnd: string;
+    }> = [];
+
+    for (const budget of budgets) {
+      const catIds = budgetCategoriesMap.get(budget.id) || [];
+      if (catIds.length === 0) continue;
+
+      const budgetCatSet = new Set(catIds);
+
+      // Find budget period containing effectiveTo (monthly recurrence from start_date)
+      const startDate = new Date(budget.start_date.slice(0, 10));
+      let periodStart = new Date(startDate);
+      let periodEnd = new Date(startDate);
+      periodEnd.setMonth(periodEnd.getMonth() + 1);
+      periodEnd.setDate(periodEnd.getDate() - 1);
+
+      const effectiveToDate = new Date(effectiveTo);
+      while (periodEnd < effectiveToDate) {
+        const nextStart = new Date(periodEnd);
+        nextStart.setDate(nextStart.getDate() + 1);
+        periodStart = nextStart;
+        periodEnd = new Date(periodStart);
+        periodEnd.setMonth(periodEnd.getMonth() + 1);
+        periodEnd.setDate(periodEnd.getDate() - 1);
+      }
+
+      const windowStart = new Date(Math.max(from.getTime(), periodStart.getTime()));
+      const windowEnd = new Date(Math.min(to.getTime(), periodEnd.getTime()));
+      const windowStartStr = windowStart.toISOString().split('T')[0];
+      const windowEndStr = windowEnd.toISOString().split('T')[0];
+
+      let spent = 0;
+
+      transactions.forEach((tx) => {
+        if (tx.kind !== 'expense' || tx.is_investment || !tx.category_id) return;
+        if (!budgetCatSet.has(tx.category_id)) return;
+
+        const txDate = new Date(tx.created_at);
+        if (txDate < windowStart || txDate > windowEnd) return;
+
+        const account = accountsById.get(tx.account_id);
+        const currency = (account?.currency || 'EUR').toUpperCase();
+
+        if (currency === 'EUR') {
+          spent += tx.amount;
+        } else if (currency === 'USD') {
+          const txDay = txDate.toISOString().split('T')[0];
+          const rate = getFxRate(txDay);
+          if (rate === null) {
+            fxSkippedWarning = true;
+          } else {
+            spent += tx.amount * rate;
+          }
+        }
+      });
+
+      const limit = budget.base_limit_eur;
+      const remaining = limit - spent;
+
+      items.push({
+        budget,
+        limit,
+        spent,
+        remaining,
+        windowStart: `${periodStart.toISOString().split('T')[0]}`,
+        windowEnd: `${periodEnd.toISOString().split('T')[0]}`,
+      });
+    }
+
+    const totalSpent = items.reduce((sum, i) => sum + i.spent, 0);
+
+    return {
+      items,
+      totalSpent,
+      fxSkippedWarning,
+      duplicateCategoryWarning,
+    };
+  }, [
+    budgets,
+    budgetCategoriesMap,
+    transactions,
+    accounts,
+    fxRows,
+    dateFrom,
+    dateTo,
+  ]);
+
   // Invest chart: All brokers (EUR total) или по выбранному broker (EUR или USD+EUR dual)
   // Carry forward: для каждой даты D берём последний известный snapshot по каждой позиции (captured_date <= D)
   const investChartData = useMemo(() => {
@@ -997,6 +1218,77 @@ export default function StatsPage() {
               </p>
             </div>
           </div>
+        </section>
+
+        {/* Budgets */}
+        <section className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">
+          <h2 className="mb-4 text-lg font-semibold text-neutral-900">Budgets</h2>
+
+          {budgetsLoading && <p className="text-sm text-neutral-600">Загрузка бюджетов...</p>}
+          {budgetsError && (
+            <div className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{budgetsError}</div>
+          )}
+          {budgetAnalytics.fxSkippedWarning && (
+            <div className="mb-4 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
+              Some USD expenses were skipped due to missing FX
+            </div>
+          )}
+          {budgetAnalytics.duplicateCategoryWarning && (
+            <div className="mb-4 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
+              Some categories belong to multiple budgets; only the first budget was used
+            </div>
+          )}
+
+          {!budgetsLoading && !budgetsError && budgetAnalytics.items.length === 0 && budgets.length === 0 && (
+            <p className="text-sm text-neutral-600">Нет бюджетов. Создайте их в Настройках.</p>
+          )}
+
+          {!budgetsLoading && budgetAnalytics.items.length > 0 && (
+            <div className="space-y-4">
+              <div className="rounded-lg bg-neutral-50 px-4 py-2">
+                <p className="text-xs text-neutral-600">Total budgets spent</p>
+                <p className="text-lg font-semibold text-neutral-900">{formatMoney(budgetAnalytics.totalSpent)}</p>
+              </div>
+
+              {budgetAnalytics.items.map((item) => {
+                const pct = item.limit > 0 ? Math.min(100, (item.spent / item.limit) * 100) : 0;
+                return (
+                  <div key={item.budget.id} className="rounded-lg border border-neutral-200 p-4">
+                    <div className="mb-2 flex items-center justify-between">
+                      <h3 className="font-semibold text-neutral-900">{item.budget.name}</h3>
+                      <span className="text-xs text-neutral-500">
+                        Budget window: {item.windowStart} – {item.windowEnd}
+                      </span>
+                    </div>
+                    <div className="mb-2 flex justify-between text-sm">
+                      <span className="text-neutral-600">Limit: {formatMoney(item.limit)}</span>
+                      <span className="text-neutral-600">Spent: {formatMoney(item.spent)}</span>
+                      <span
+                        className={item.remaining >= 0 ? 'text-emerald-700' : 'text-red-700'}
+                      >
+                        Remaining: {formatMoney(item.remaining)}
+                      </span>
+                    </div>
+                    <div className="h-2 overflow-hidden rounded-full bg-neutral-200">
+                      <div
+                        className="h-full rounded-full bg-red-500 transition-all"
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                    {item.spent > item.limit && item.limit > 0 && (
+                      <p className="mt-1 text-xs text-red-600">
+                        Over by {formatMoney(item.spent - item.limit)}
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {!budgetsLoading && !budgetsError && budgetAnalytics.items.length === 0 && budgets.length > 0 && (
+            <p className="text-sm text-neutral-600">Бюджеты не имеют категорий или период не пересекается.</p>
+          )}
         </section>
 
         {/* Суммарные графики */}
