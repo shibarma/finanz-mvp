@@ -126,6 +126,35 @@ const formatMoneyUSD = (amount: number): string => {
   }).format(amount);
 };
 
+// Budget period helpers (no date libs, Date only)
+function parseYmd(ymd: string): Date {
+  const [y, m, d] = ymd.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
+function formatYmd(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function daysInMonth(year: number, monthIndex0: number): number {
+  return new Date(year, monthIndex0 + 1, 0).getDate();
+}
+
+function addMonthsClamped(date: Date, months: number): Date {
+  const year = date.getFullYear();
+  const monthIndex0 = date.getMonth();
+  const day = date.getDate();
+  const newMonth = monthIndex0 + months;
+  const newYear = year + Math.floor(newMonth / 12);
+  const newMonthIndex0 = ((newMonth % 12) + 12) % 12;
+  const maxDay = daysInMonth(newYear, newMonthIndex0);
+  const clampedDay = Math.min(day, maxDay);
+  return new Date(newYear, newMonthIndex0, clampedDay);
+}
+
 export default function StatsPage() {
   const router = useRouter();
   const [sessionChecked, setSessionChecked] = useState(false);
@@ -761,10 +790,6 @@ export default function StatsPage() {
       };
     }
 
-    const from = new Date(dateFrom);
-    const to = new Date(dateTo);
-    to.setHours(23, 59, 59, 999);
-
     const effectiveTo = dateTo || new Date().toISOString().split('T')[0];
 
     // category_id -> budget_id (first budget wins; track duplicates)
@@ -810,26 +835,24 @@ export default function StatsPage() {
       const budgetCatSet = new Set(catIds);
 
       // Find budget period containing effectiveTo (monthly recurrence from start_date)
-      const startDate = new Date(budget.start_date.slice(0, 10));
-      let periodStart = new Date(startDate);
-      let periodEnd = new Date(startDate);
-      periodEnd.setMonth(periodEnd.getMonth() + 1);
+      const startDate = parseYmd(budget.start_date.slice(0, 10));
+      let periodStart = new Date(startDate.getTime());
+      let nextStart = addMonthsClamped(periodStart, 1);
+      let periodEnd = new Date(nextStart);
       periodEnd.setDate(periodEnd.getDate() - 1);
 
       const effectiveToDate = new Date(effectiveTo);
       while (periodEnd < effectiveToDate) {
-        const nextStart = new Date(periodEnd);
-        nextStart.setDate(nextStart.getDate() + 1);
         periodStart = nextStart;
-        periodEnd = new Date(periodStart);
-        periodEnd.setMonth(periodEnd.getMonth() + 1);
+        nextStart = addMonthsClamped(periodStart, 1);
+        periodEnd = new Date(nextStart);
         periodEnd.setDate(periodEnd.getDate() - 1);
       }
 
-      const windowStart = new Date(Math.max(from.getTime(), periodStart.getTime()));
-      const windowEnd = new Date(Math.min(to.getTime(), periodEnd.getTime()));
-      const windowStartStr = windowStart.toISOString().split('T')[0];
-      const windowEndStr = windowEnd.toISOString().split('T')[0];
+      const periodStartYmd = formatYmd(periodStart);
+      const periodEndYmd = formatYmd(periodEnd);
+      const windowStartYmd = dateFrom > periodStartYmd ? dateFrom : periodStartYmd;
+      const windowEndYmd = dateTo < periodEndYmd ? dateTo : periodEndYmd;
 
       let spent = 0;
 
@@ -837,8 +860,8 @@ export default function StatsPage() {
         if (tx.kind !== 'expense' || tx.is_investment || !tx.category_id) return;
         if (!budgetCatSet.has(tx.category_id)) return;
 
-        const txDate = new Date(tx.created_at);
-        if (txDate < windowStart || txDate > windowEnd) return;
+        const txYmd = tx.created_at.slice(0, 10);
+        if (txYmd < windowStartYmd || txYmd > windowEndYmd) return;
 
         const account = accountsById.get(tx.account_id);
         const currency = (account?.currency || 'EUR').toUpperCase();
@@ -846,8 +869,7 @@ export default function StatsPage() {
         if (currency === 'EUR') {
           spent += tx.amount;
         } else if (currency === 'USD') {
-          const txDay = txDate.toISOString().split('T')[0];
-          const rate = getFxRate(txDay);
+          const rate = getFxRate(txYmd);
           if (rate === null) {
             fxSkippedWarning = true;
           } else {
@@ -864,8 +886,8 @@ export default function StatsPage() {
         limit,
         spent,
         remaining,
-        windowStart: `${periodStart.toISOString().split('T')[0]}`,
-        windowEnd: `${periodEnd.toISOString().split('T')[0]}`,
+        windowStart: formatYmd(periodStart),
+        windowEnd: formatYmd(periodEnd),
       });
     }
 
