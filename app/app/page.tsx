@@ -683,12 +683,12 @@ export default function FinanceAppPage() {
     }
     const amount = parsed.value;
     if (amount <= 0) {
-      setError('Введите положительную сумму.');
+      setError('Enter a positive amount.');
       return;
     }
 
     if (!accountIncome) {
-      setError('Выберите счёт.');
+      setError('Select account.');
       return;
     }
 
@@ -730,12 +730,12 @@ export default function FinanceAppPage() {
     }
     const amount = parsed.value;
     if (amount <= 0) {
-      setError('Введите положительную сумму.');
+      setError('Enter a positive amount.');
       return;
     }
 
     if (!accountExpense) {
-      setError('Выберите счёт.');
+      setError('Select account.');
       return;
     }
 
@@ -746,13 +746,13 @@ export default function FinanceAppPage() {
       if (account.kind === 'cash') {
         if (amount > currentBalance) {
           setError(
-            `Недостаточно средств на счёте "${account.name}". Доступно: ${formatMoney(currentBalance, accountCurrency)}.`,
+            `Insufficient funds on account "${account.name}". Available: ${formatMoney(currentBalance, accountCurrency)}.`,
           );
           return;
         }
       } else if (account.kind === 'broker') {
         if (amount > currentBalance) {
-          setError('Недостаточно средств на брокерском счёте. Баланс не может быть отрицательным.');
+          setError('Insufficient funds on broker account. Balance cannot be negative.');
           return;
         }
       }
@@ -796,7 +796,7 @@ export default function FinanceAppPage() {
     }
     const amount = parsed.value;
     if (amount <= 0) {
-      setError('Введите положительную сумму.');
+      setError('Enter a positive amount.');
       return;
     }
 
@@ -805,30 +805,30 @@ export default function FinanceAppPage() {
 
     if (isCreditRepayment) {
       if (!toAccountId) {
-        setError('Выберите кредитный счёт.');
+        setError('Select credit account.');
         return;
       }
 
       const creditAccount = accountsById.get(toAccountId);
       if (!creditAccount || creditAccount.kind !== 'credit') {
-        setError('Выберите кредитный счёт.');
+        setError('Select credit account.');
         return;
       }
 
       if (!creditAccount.debit_anchor_account_id) {
-        setError('У выбранной кредитки нет привязанного дебетового счёта.');
+        setError('Selected credit card has no linked debit account.');
         return;
       }
 
       fromAccountId = creditAccount.debit_anchor_account_id;
     } else {
       if (!fromAccountId || !toAccountId) {
-        setError('Выберите счета "Откуда" и "Куда".');
+        setError('Select From and To accounts.');
         return;
       }
 
       if (fromAccountId === toAccountId) {
-        setError('Счета "Откуда" и "Куда" не могут совпадать.');
+        setError('From and To accounts cannot be the same.');
         return;
       }
 
@@ -839,7 +839,7 @@ export default function FinanceAppPage() {
         const fromCurrency = getAccountCurrency(fromAccount);
         const toCurrency = getAccountCurrency(toAccount);
         if (fromCurrency !== toCurrency) {
-          setTransferCurrencyError('Перевод между счетами с разной валютой запрещён в v1. Выберите счета с одинаковой валютой.');
+          setTransferCurrencyError('Transfer between accounts with different currencies is not allowed in v1. Select accounts with the same currency.');
           return;
         }
       }
@@ -854,7 +854,7 @@ export default function FinanceAppPage() {
           const creditCurrency = getAccountCurrency(creditAccount);
           const debitCurrency = getAccountCurrency(debitAccount);
           if (creditCurrency !== debitCurrency) {
-            setTransferCurrencyError('Перевод между счетами с разной валютой запрещён в v1. Выберите счета с одинаковой валютой.');
+            setTransferCurrencyError('Transfer between accounts with different currencies is not allowed in v1. Select accounts with the same currency.');
             return;
           }
         }
@@ -871,13 +871,13 @@ export default function FinanceAppPage() {
       if (fromAccount.kind === 'cash') {
         if (amount > currentBalance) {
           setError(
-            `Недостаточно средств на счёте "${fromAccount.name}". Доступно: ${formatMoney(currentBalance, accountCurrency)}.`,
+            `Insufficient funds on account "${fromAccount.name}". Available: ${formatMoney(currentBalance, accountCurrency)}.`,
           );
           return;
         }
       } else if (fromAccount.kind === 'broker') {
         if (amount > currentBalance) {
-          setError('Недостаточно средств на брокерском счёте. Баланс не может быть отрицательным.');
+          setError('Insufficient funds on broker account. Balance cannot be negative.');
           return;
         }
       }
@@ -891,7 +891,7 @@ export default function FinanceAppPage() {
         const fromCurrency = getAccountCurrency(finalFromAccount);
         const toCurrency = getAccountCurrency(finalToAccount);
         if (fromCurrency !== toCurrency) {
-          setError('Перевод между счетами с разной валютой запрещён в v1. Выберите счета с одинаковой валютой.');
+          setError('Transfer between accounts with different currencies is not allowed in v1. Select accounts with the same currency.');
           return;
         }
       }
@@ -921,7 +921,7 @@ export default function FinanceAppPage() {
 
     if (!transferData) {
       setSubmittingTransfer(false);
-      setError('Ошибка при создании перевода.');
+      setError('Error creating transfer.');
       return;
     }
 
@@ -1002,23 +1002,23 @@ export default function FinanceAppPage() {
     const fee = feeParsed.value;
 
     if (!investBroker) {
-      setError('Выберите брокера.');
+      setError('Select broker.');
       return;
     }
     if (!investInstrument) {
-      setError('Выберите инструмент.');
+      setError('Select instrument.');
       return;
     }
     if (quantity <= 0) {
-      setError('Количество должно быть больше 0.');
+      setError('Quantity must be greater than 0.');
       return;
     }
     if (pricePerUnit <= 0) {
-      setError('Цена за единицу должна быть больше 0.');
+      setError('Price per unit must be greater than 0.');
       return;
     }
     if (fee < 0) {
-      setError('Комиссия должна быть не меньше 0.');
+      setError('Fee must be at least 0.');
       return;
     }
 
@@ -1026,19 +1026,19 @@ export default function FinanceAppPage() {
     const brokerAccount = accountsById.get(investBroker);
 
     if (!position || !brokerAccount) {
-      setError('Позиция или брокерский счёт не найдены.');
+      setError('Position or broker account not found.');
       return;
     }
 
     if (position.broker_account_id !== investBroker) {
-      setError('Позиция не принадлежит выбранному брокеру.');
+      setError('Position does not belong to selected broker.');
       return;
     }
 
     const brokerCurrency = (brokerAccount.currency || 'EUR') as AccountCurrency;
     const posCurrency = (position.quote_currency || 'EUR') as AccountCurrency;
     if (brokerCurrency !== posCurrency) {
-      setError('Валюта позиции не совпадает с валютой брокерского счёта.');
+      setError('Position currency does not match broker account currency.');
       return;
     }
 
@@ -1050,11 +1050,11 @@ export default function FinanceAppPage() {
     } else {
       amount = quantity * pricePerUnit - fee;
       if (amount < 0) {
-        setError('При Sell комиссия не может превышать сумму сделки (quantity × price).');
+        setError('For Sell, fee cannot exceed trade amount (quantity × price).');
         return;
       }
       if (quantity > position.quantity) {
-        setError(`Количество для продажи (${quantity}) превышает текущую позицию (${position.quantity}).`);
+        setError(`Sell quantity (${quantity}) exceeds current position (${position.quantity}).`);
         return;
       }
     }
@@ -1063,7 +1063,7 @@ export default function FinanceAppPage() {
     if (side === 'Buy') {
       const currentBalance = accountBalances.get(investBroker)?.balance || 0;
       if (amount > currentBalance) {
-        setError('Недостаточно средств на брокерском счёте. Баланс не может быть отрицательным.');
+        setError('Insufficient funds on broker account. Balance cannot be negative.');
         return;
       }
     }
@@ -1087,7 +1087,7 @@ export default function FinanceAppPage() {
         .eq('user_id', userId);
 
       if (updatePosError) {
-        setError(`Ошибка обновления позиции: ${updatePosError.message}`);
+        setError(`Error updating position: ${updatePosError.message}`);
         setSubmittingInvest(false);
         return;
       }
@@ -1112,7 +1112,7 @@ export default function FinanceAppPage() {
         .single();
 
       if (txError || !txData) {
-        setError(`Ошибка создания операции: ${txError?.message || 'Неизвестная ошибка'}`);
+        setError(`Error creating transaction: ${txError?.message || 'Unknown error'}`);
         setSubmittingInvest(false);
         return;
       }
@@ -1131,7 +1131,7 @@ export default function FinanceAppPage() {
       });
 
       if (tradeError) {
-        setError(`Ошибка записи сделки: ${tradeError.message}`);
+        setError(`Error recording trade: ${tradeError.message}`);
         setSubmittingInvest(false);
         return;
       }
@@ -1144,7 +1144,7 @@ export default function FinanceAppPage() {
       setOperationsPage(0);
       await Promise.all([loadPositions(userId), loadTransactions(userId), loadInvestmentTrades(userId)]);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Неожиданная ошибка');
+      setError(err instanceof Error ? err.message : 'Unexpected error');
     } finally {
       setSubmittingInvest(false);
     }
@@ -1224,7 +1224,7 @@ export default function FinanceAppPage() {
     }
     const amount = parsed.value;
     if (amount <= 0) {
-      setError('Введите положительную сумму.');
+      setError('Enter a positive amount.');
       return;
     }
 
@@ -1266,7 +1266,7 @@ export default function FinanceAppPage() {
       } else {
         // Обновляем transaction для income/expense
         if (!editAccount) {
-          setError('Выберите счёт.');
+          setError('Select account.');
           setSavingEdit(false);
           return;
         }
@@ -1293,7 +1293,7 @@ export default function FinanceAppPage() {
       await Promise.all([loadTransactions(userId), loadTransfers(userId)]);
       handleCancelEdit();
     } catch (err: any) {
-      setError(err.message || 'Ошибка при сохранении');
+      setError(err.message || 'Error saving');
     } finally {
       setSavingEdit(false);
     }
@@ -1305,7 +1305,7 @@ export default function FinanceAppPage() {
   }) => {
     if (!userId) return;
 
-    if (!window.confirm('Вы уверены, что хотите удалить эту операцию?')) {
+    if (!window.confirm('Are you sure you want to delete this operation?')) {
       return;
     }
 
@@ -1354,7 +1354,7 @@ export default function FinanceAppPage() {
       await Promise.all([loadTransactions(userId), loadTransfers(userId)]);
       setOperationsPage(0);
     } catch (err: any) {
-      setError(err.message || 'Ошибка при удалении');
+      setError(err.message || 'Error deleting');
     }
   };
 
@@ -1404,41 +1404,41 @@ export default function FinanceAppPage() {
     const fee = feeParsed.value;
 
     if (quantity <= 0) {
-      setTradeEditError('Количество должно быть больше 0.');
+      setTradeEditError('Quantity must be greater than 0.');
       return;
     }
     if (pricePerUnit <= 0) {
-      setTradeEditError('Цена за единицу должна быть больше 0.');
+      setTradeEditError('Price per unit must be greater than 0.');
       return;
     }
     if (fee < 0) {
-      setTradeEditError('Комиссия должна быть не меньше 0.');
+      setTradeEditError('Fee must be at least 0.');
       return;
     }
 
     const position = positions.find((p) => p.id === trade.position_id);
     const brokerAccount = accountsById.get(trade.broker_account_id);
     if (!position || !brokerAccount) {
-      setTradeEditError('Позиция или брокерский счёт не найдены.');
+      setTradeEditError('Position or broker account not found.');
       return;
     }
 
     const amount =
       trade.side === 'buy' ? quantity * pricePerUnit + fee : quantity * pricePerUnit - fee;
     if (amount < 0) {
-      setTradeEditError('При Sell комиссия не может превышать сумму сделки.');
+      setTradeEditError('For Sell, fee cannot exceed trade amount.');
       return;
     }
 
     if (trade.side === 'sell' && quantity > position.quantity) {
-      setTradeEditError(`Количество для продажи (${quantity}) превышает текущую позицию (${position.quantity}).`);
+      setTradeEditError(`Sell quantity (${quantity}) exceeds current position (${position.quantity}).`);
       return;
     }
 
     if (trade.side === 'buy') {
       const currentBalance = accountBalances.get(trade.broker_account_id)?.balance || 0;
       if (amount > currentBalance + trade.total_amount) {
-        setTradeEditError('Недостаточно средств на брокерском счёте.');
+        setTradeEditError('Insufficient funds on broker account.');
         return;
       }
     }
@@ -1458,7 +1458,7 @@ export default function FinanceAppPage() {
         .eq('user_id', userId);
 
       if (posError) {
-        setTradeEditError(`Ошибка обновления позиции: ${posError.message}`);
+        setTradeEditError(`Error updating position: ${posError.message}`);
         setSavingTradeEdit(false);
         return;
       }
@@ -1470,7 +1470,7 @@ export default function FinanceAppPage() {
         .eq('user_id', userId);
 
       if (txError) {
-        setTradeEditError(`Ошибка обновления транзакции: ${txError.message}`);
+        setTradeEditError(`Error updating transaction: ${txError.message}`);
         setSavingTradeEdit(false);
         return;
       }
@@ -1488,7 +1488,7 @@ export default function FinanceAppPage() {
         .eq('user_id', userId);
 
       if (tradeError) {
-        setTradeEditError(`Ошибка обновления сделки: ${tradeError.message}`);
+        setTradeEditError(`Error updating trade: ${tradeError.message}`);
         setSavingTradeEdit(false);
         return;
       }
@@ -1496,7 +1496,7 @@ export default function FinanceAppPage() {
       await Promise.all([loadPositions(userId), loadTransactions(userId), loadInvestmentTrades(userId)]);
       handleCancelEditTrade();
     } catch (err: any) {
-      setTradeEditError(err.message || 'Ошибка при сохранении');
+      setTradeEditError(err.message || 'Error saving');
     } finally {
       setSavingTradeEdit(false);
     }
@@ -1504,7 +1504,7 @@ export default function FinanceAppPage() {
 
   const handleDeleteInvestmentTrade = async (trade: InvestmentTrade) => {
     if (!userId || !sessionToken) return;
-    if (!window.confirm('Вы уверены, что хотите удалить эту сделку?')) return;
+    if (!window.confirm('Are you sure you want to delete this trade?')) return;
 
     setTradeDeleteMessage(null);
     setDeletingTradeId(trade.id);
@@ -1524,12 +1524,12 @@ export default function FinanceAppPage() {
       if (!response.ok || !data.ok) {
         setTradeDeleteMessage({
           type: 'error',
-          text: data.error || 'Ошибка при удалении сделки',
+          text: data.error || 'Error deleting trade',
         });
         return;
       }
 
-      setTradeDeleteMessage({ type: 'success', text: 'Сделка удалена.' });
+      setTradeDeleteMessage({ type: 'success', text: 'Trade deleted.' });
       await Promise.all([
         loadAccounts(),
         loadPositions(userId),
@@ -1540,7 +1540,7 @@ export default function FinanceAppPage() {
     } catch (err: any) {
       setTradeDeleteMessage({
         type: 'error',
-        text: err.message || 'Ошибка при удалении',
+        text: err.message || 'Error deleting',
       });
     } finally {
       setDeletingTradeId(null);
@@ -1602,7 +1602,7 @@ export default function FinanceAppPage() {
           const creditCurrency = getAccountCurrency(creditAccount);
           const debitCurrency = getAccountCurrency(debitAccount);
           if (creditCurrency !== debitCurrency) {
-            setTransferCurrencyError('Перевод между счетами с разной валютой запрещён в v1. Выберите счета с одинаковой валютой.');
+            setTransferCurrencyError('Transfer between accounts with different currencies is not allowed in v1. Select accounts with the same currency.');
           } else {
             setTransferCurrencyError(null);
           }
@@ -1617,7 +1617,7 @@ export default function FinanceAppPage() {
   if (!sessionChecked) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-neutral-50 text-neutral-700">
-        Проверяем сессию...
+        Checking session...
       </div>
     );
   }
@@ -1627,8 +1627,8 @@ export default function FinanceAppPage() {
       <div className="mx-auto flex max-w-5xl flex-col gap-6">
         <header className="flex items-center justify-between rounded-2xl border border-neutral-200 bg-white px-6 py-4 shadow-sm">
           <div>
-            <h1 className="text-xl font-semibold text-neutral-900">Главная</h1>
-            <p className="text-sm text-neutral-600">Управление финансами</p>
+            <h1 className="text-xl font-semibold text-neutral-900">Dashboard</h1>
+            <p className="text-sm text-neutral-600">Finance management</p>
           </div>
           <div className="flex items-center gap-3">
             <button
@@ -1642,13 +1642,13 @@ export default function FinanceAppPage() {
               onClick={() => router.push('/setup')}
               className="rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-800 transition hover:bg-neutral-100"
             >
-              Настройки
+              Settings
             </button>
             <button
               onClick={() => router.push('/stats')}
               className="rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-800 transition hover:bg-neutral-100"
             >
-              Статистика
+              Statistics
             </button>
             <button
               onClick={handleLogout}
@@ -1665,7 +1665,7 @@ export default function FinanceAppPage() {
 
         {refreshLoading && (
           <div className="rounded-lg bg-neutral-100 px-4 py-3 text-sm text-neutral-700">
-            Обновляем котировки и FX...
+            Refreshing quotes and FX...
           </div>
         )}
 
@@ -1687,7 +1687,7 @@ export default function FinanceAppPage() {
 
         {/* Operations form - moved to top */}
         <section className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">
-          <h2 className="mb-4 text-lg font-semibold text-neutral-900">Операции</h2>
+          <h2 className="mb-4 text-lg font-semibold text-neutral-900">Operations</h2>
 
           <div className="grid gap-6 md:grid-cols-4">
             {/* Income */}
@@ -1695,7 +1695,7 @@ export default function FinanceAppPage() {
               <h3 className="text-sm font-semibold text-neutral-900">Income</h3>
               <div className="space-y-2">
                 <div>
-                  <label className="block text-xs font-medium text-neutral-700">Сумма</label>
+                  <label className="block text-xs font-medium text-neutral-700">Amount</label>
                   <input
                     type="text"
                     value={amountIncome}
@@ -1704,11 +1704,11 @@ export default function FinanceAppPage() {
                     placeholder="0.00"
                   />
                   <p className="mt-1 text-xs text-neutral-500">
-                    Можно вводить выражение: 5+6-2, поддерживаются + - * / ( )
+                    You can enter expressions: 5+6-2, supports + - * / ( )
                   </p>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-neutral-700">Куда</label>
+                  <label className="block text-xs font-medium text-neutral-700">To</label>
                     <select
                       value={accountIncome}
                       onChange={(e) => {
@@ -1717,7 +1717,7 @@ export default function FinanceAppPage() {
                       }}
                       className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
                     >
-                      <option value="">Выберите счёт</option>
+                      <option value="">Select account</option>
                       {accounts.map((acc) => (
                         <option key={acc.id} value={acc.id}>
                           {acc.name} ({acc.kind}) {getCurrencySymbol(acc.currency)}
@@ -1727,14 +1727,14 @@ export default function FinanceAppPage() {
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-neutral-700">
-                    Категория (опционально)
+                    Category (optional)
                   </label>
                   <select
                     value={categoryIncome}
                     onChange={(e) => setCategoryIncome(e.target.value)}
                     className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
                   >
-                    <option value="">Без категории</option>
+                    <option value="">No category</option>
                     {incomeCategories.map((cat) => (
                       <option key={cat.id} value={cat.id}>
                         {cat.name}
@@ -1744,14 +1744,14 @@ export default function FinanceAppPage() {
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-neutral-700">
-                    Комментарий (опционально)
+                    Comment (optional)
                   </label>
                   <input
                     type="text"
                     value={commentIncome}
                     onChange={(e) => setCommentIncome(e.target.value)}
                     className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
-                    placeholder="Комментарий"
+                    placeholder="Comment"
                   />
                 </div>
                 <button
@@ -1759,7 +1759,7 @@ export default function FinanceAppPage() {
                   disabled={submittingIncome}
                   className="w-full rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-neutral-400"
                 >
-                  {submittingIncome ? 'Сохранение...' : 'Ввод Income'}
+                  {submittingIncome ? 'Saving...' : 'Add Income'}
                 </button>
               </div>
             </div>
@@ -1769,7 +1769,7 @@ export default function FinanceAppPage() {
               <h3 className="text-sm font-semibold text-neutral-900">Expense</h3>
               <div className="space-y-2">
                 <div>
-                  <label className="block text-xs font-medium text-neutral-700">Сумма</label>
+                  <label className="block text-xs font-medium text-neutral-700">Amount</label>
                   <input
                     type="text"
                     value={amountExpense}
@@ -1778,11 +1778,11 @@ export default function FinanceAppPage() {
                     placeholder="0.00"
                   />
                   <p className="mt-1 text-xs text-neutral-500">
-                    Можно вводить выражение: 5+6-2, поддерживаются + - * / ( )
+                    You can enter expressions: 5+6-2, supports + - * / ( )
                   </p>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-neutral-700">Откуда</label>
+                  <label className="block text-xs font-medium text-neutral-700">From</label>
                     <select
                       value={accountExpense}
                       onChange={(e) => {
@@ -1791,7 +1791,7 @@ export default function FinanceAppPage() {
                       }}
                       className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
                     >
-                      <option value="">Выберите счёт</option>
+                      <option value="">Select account</option>
                       {accounts.map((acc) => (
                         <option key={acc.id} value={acc.id}>
                           {acc.name} ({acc.kind}) {getCurrencySymbol(acc.currency)}
@@ -1801,14 +1801,14 @@ export default function FinanceAppPage() {
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-neutral-700">
-                    Категория (опционально)
+                    Category (optional)
                   </label>
                   <select
                     value={categoryExpense}
                     onChange={(e) => setCategoryExpense(e.target.value)}
                     className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
                   >
-                    <option value="">Без категории</option>
+                    <option value="">No category</option>
                     {expenseCategories.map((cat) => (
                       <option key={cat.id} value={cat.id}>
                         {cat.name}
@@ -1818,14 +1818,14 @@ export default function FinanceAppPage() {
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-neutral-700">
-                    Комментарий (опционально)
+                    Comment (optional)
                   </label>
                   <input
                     type="text"
                     value={commentExpense}
                     onChange={(e) => setCommentExpense(e.target.value)}
                     className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
-                    placeholder="Комментарий"
+                    placeholder="Comment"
                   />
                 </div>
                 <button
@@ -1833,7 +1833,7 @@ export default function FinanceAppPage() {
                   disabled={submittingExpense}
                   className="w-full rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-neutral-400"
                 >
-                  {submittingExpense ? 'Сохранение...' : 'Ввод Expense'}
+                  {submittingExpense ? 'Saving...' : 'Add Expense'}
                 </button>
               </div>
             </div>
@@ -1843,7 +1843,7 @@ export default function FinanceAppPage() {
               <h3 className="text-sm font-semibold text-neutral-900">Transfer</h3>
               <div className="space-y-2">
                 <div>
-                  <label className="block text-xs font-medium text-neutral-700">Сумма</label>
+                  <label className="block text-xs font-medium text-neutral-700">Amount</label>
                   <input
                     type="text"
                     value={amountTransfer}
@@ -1852,7 +1852,7 @@ export default function FinanceAppPage() {
                     placeholder="0.00"
                   />
                   <p className="mt-1 text-xs text-neutral-500">
-                    Можно вводить выражение: 5+6-2, поддерживаются + - * / ( )
+                    You can enter expressions: 5+6-2, supports + - * / ( )
                   </p>
                 </div>
                 <div>
@@ -1863,13 +1863,13 @@ export default function FinanceAppPage() {
                       onChange={(e) => setIsCreditRepayment(e.target.checked)}
                       className="h-4 w-4"
                     />
-                    <span className="text-xs font-medium text-neutral-700">Погашение кредита</span>
+                    <span className="text-xs font-medium text-neutral-700">Credit repayment</span>
                   </label>
                 </div>
                 {!isCreditRepayment ? (
                   <>
                     <div>
-                      <label className="block text-xs font-medium text-neutral-700">Откуда</label>
+                      <label className="block text-xs font-medium text-neutral-700">From</label>
                       <select
                         value={fromAccountTransfer}
                         onChange={(e) => {
@@ -1883,7 +1883,7 @@ export default function FinanceAppPage() {
                               const fromCurrency = getAccountCurrency(fromAcc);
                               const toCurrency = getAccountCurrency(toAcc);
                               if (fromCurrency !== toCurrency) {
-                                setTransferCurrencyError('Перевод между счетами с разной валютой запрещён в v1. Выберите счета с одинаковой валютой.');
+                                setTransferCurrencyError('Transfer between accounts with different currencies is not allowed in v1. Select accounts with the same currency.');
                               } else {
                                 setTransferCurrencyError(null);
                               }
@@ -1892,7 +1892,7 @@ export default function FinanceAppPage() {
                         }}
                         className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
                       >
-                        <option value="">Выберите счёт</option>
+                        <option value="">Select account</option>
                         {accounts.map((acc) => (
                           <option key={acc.id} value={acc.id}>
                             {acc.name} ({acc.kind}) {getCurrencySymbol(acc.currency)}
@@ -1901,7 +1901,7 @@ export default function FinanceAppPage() {
                       </select>
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-neutral-700">Куда</label>
+                      <label className="block text-xs font-medium text-neutral-700">To</label>
                       <select
                         value={toAccountTransfer}
                         onChange={(e) => {
@@ -1915,7 +1915,7 @@ export default function FinanceAppPage() {
                               const fromCurrency = getAccountCurrency(fromAcc);
                               const toCurrency = getAccountCurrency(toAcc);
                               if (fromCurrency !== toCurrency) {
-                                setTransferCurrencyError('Перевод между счетами с разной валютой запрещён в v1. Выберите счета с одинаковой валютой.');
+                                setTransferCurrencyError('Transfer between accounts with different currencies is not allowed in v1. Select accounts with the same currency.');
                               } else {
                                 setTransferCurrencyError(null);
                               }
@@ -1924,7 +1924,7 @@ export default function FinanceAppPage() {
                         }}
                         className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
                       >
-                        <option value="">Выберите счёт</option>
+                        <option value="">Select account</option>
                         {accounts.map((acc) => (
                           <option key={acc.id} value={acc.id}>
                             {acc.name} ({acc.kind}) {getCurrencySymbol(acc.currency)}
@@ -1936,7 +1936,7 @@ export default function FinanceAppPage() {
                 ) : (
                   <>
                     <div>
-                      <label className="block text-xs font-medium text-neutral-700">Куда (кредитка)</label>
+                      <label className="block text-xs font-medium text-neutral-700">To (credit card)</label>
                       <select
                         value={toAccountTransfer}
                         onChange={(e) => {
@@ -1945,7 +1945,7 @@ export default function FinanceAppPage() {
                         }}
                         className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
                       >
-                        <option value="">Выберите кредитный счёт</option>
+                        <option value="">Select credit account</option>
                         {creditAccounts.map((acc) => (
                           <option key={acc.id} value={acc.id}>
                             {acc.name} {getCurrencySymbol(acc.currency)}
@@ -1955,7 +1955,7 @@ export default function FinanceAppPage() {
                     </div>
                     {fromAccountTransfer && (
                       <div>
-                        <label className="block text-xs font-medium text-neutral-700">Откуда</label>
+                        <label className="block text-xs font-medium text-neutral-700">From</label>
                         <input
                           type="text"
                           value={accountsById.get(fromAccountTransfer)?.name || ''}
@@ -1963,7 +1963,7 @@ export default function FinanceAppPage() {
                           className="mt-1 w-full rounded-lg border border-neutral-300 bg-neutral-100 px-3 py-2 text-sm"
                         />
                         <p className="mt-1 text-xs text-neutral-500">
-                          Автоматически выбран привязанный дебетовый счёт
+                          Automatically selected linked debit account
                         </p>
                       </div>
                     )}
@@ -1976,14 +1976,14 @@ export default function FinanceAppPage() {
                 )}
                 <div>
                   <label className="block text-xs font-medium text-neutral-700">
-                    Комментарий (опционально)
+                    Comment (optional)
                   </label>
                   <input
                     type="text"
                     value={commentTransfer}
                     onChange={(e) => setCommentTransfer(e.target.value)}
                     className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
-                    placeholder="Комментарий"
+                    placeholder="Comment"
                   />
                 </div>
                 <button
@@ -1991,7 +1991,7 @@ export default function FinanceAppPage() {
                   disabled={submittingTransfer || !!transferCurrencyError}
                   className="w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-neutral-400"
                 >
-                  {submittingTransfer ? 'Сохранение...' : 'Ввод Transfer'}
+                  {submittingTransfer ? 'Saving...' : 'Add Transfer'}
                 </button>
               </div>
             </div>
@@ -2001,13 +2001,13 @@ export default function FinanceAppPage() {
               <h3 className="text-sm font-semibold text-neutral-900">Invest Buy / Sell</h3>
               <div className="space-y-2">
                 <div>
-                  <label className="block text-xs font-medium text-neutral-700">Брокер</label>
+                  <label className="block text-xs font-medium text-neutral-700">Broker</label>
                   <select
                     value={investBroker}
                     onChange={(e) => setInvestBroker(e.target.value)}
                     className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
                   >
-                    <option value="">Выберите брокера</option>
+                    <option value="">Select broker</option>
                     {brokerAccounts.map((acc) => (
                       <option key={acc.id} value={acc.id}>
                         {acc.name} {getCurrencySymbol(acc.currency)}
@@ -2016,14 +2016,14 @@ export default function FinanceAppPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-neutral-700">Инструмент</label>
+                  <label className="block text-xs font-medium text-neutral-700">Instrument</label>
                   <select
                     value={investInstrument}
                     onChange={(e) => setInvestInstrument(e.target.value)}
                     disabled={!investBroker}
                     className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200 disabled:bg-neutral-100"
                   >
-                    <option value="">Выберите инструмент</option>
+                    <option value="">Select instrument</option>
                     {positionsByBroker.map((pos) => (
                       <option key={pos.id} value={pos.id}>
                         {getPositionSymbol(pos)} (qty: {pos.quantity})
@@ -2032,7 +2032,7 @@ export default function FinanceAppPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-neutral-700">Сторона</label>
+                  <label className="block text-xs font-medium text-neutral-700">Side</label>
                   <select
                     value={investSide}
                     onChange={(e) => setInvestSide(e.target.value as 'Buy' | 'Sell')}
@@ -2043,7 +2043,7 @@ export default function FinanceAppPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-neutral-700">Количество</label>
+                  <label className="block text-xs font-medium text-neutral-700">Quantity</label>
                   <input
                     type="text"
                     value={investQuantity}
@@ -2052,19 +2052,19 @@ export default function FinanceAppPage() {
                     placeholder="0"
                   />
                   <p className="mt-1 text-xs text-neutral-500">
-                    Можно вводить выражение: 5+6-2, поддерживаются + - * / ( )
+                    You can enter expressions: 5+6-2, supports + - * / ( )
                   </p>
                   {parseFloat(investQuantity) <= 0 && investQuantity !== '' && (
-                    <p className="mt-1 text-xs text-red-600">Количество должно быть &gt; 0</p>
+                    <p className="mt-1 text-xs text-red-600">Quantity must be &gt; 0</p>
                   )}
                   {investSide === 'Sell' && investInstrument && (
                     <p className="mt-1 text-xs text-neutral-500">
-                      При Sell количество должно быть ≤ текущей позиции (проверка позже)
+                      For Sell, quantity must be ≤ current position (validated later)
                     </p>
                   )}
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-neutral-700">Цена за единицу</label>
+                  <label className="block text-xs font-medium text-neutral-700">Price per unit</label>
                   <input
                     type="text"
                     value={investPricePerUnit}
@@ -2073,11 +2073,11 @@ export default function FinanceAppPage() {
                     placeholder="0"
                   />
                   <p className="mt-1 text-xs text-neutral-500">
-                    Можно вводить выражение: 5+6-2, поддерживаются + - * / ( )
+                    You can enter expressions: 5+6-2, supports + - * / ( )
                   </p>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-neutral-700">Комиссия (опционально)</label>
+                  <label className="block text-xs font-medium text-neutral-700">Fee (optional)</label>
                   <input
                     type="text"
                     value={investFee}
@@ -2086,17 +2086,17 @@ export default function FinanceAppPage() {
                     placeholder="0"
                   />
                   {parseFloat(investFee) < 0 && investFee !== '' && (
-                    <p className="mt-1 text-xs text-red-600">Комиссия должна быть ≥ 0</p>
+                    <p className="mt-1 text-xs text-red-600">Fee must be ≥ 0</p>
                   )}
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-neutral-700">Комментарий (опционально)</label>
+                  <label className="block text-xs font-medium text-neutral-700">Comment (optional)</label>
                   <input
                     type="text"
                     value={investComment}
                     onChange={(e) => setInvestComment(e.target.value)}
                     className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
-                    placeholder="Комментарий"
+                    placeholder="Comment"
                   />
                 </div>
                 {(() => {
@@ -2126,7 +2126,7 @@ export default function FinanceAppPage() {
                         disabled={!canBuy || submittingInvest}
                         className="w-full rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-neutral-400"
                       >
-                        {submittingInvest ? 'Сохранение...' : 'Submit Buy'}
+                        {submittingInvest ? 'Saving...' : 'Submit Buy'}
                       </button>
                       <button
                         type="button"
@@ -2134,7 +2134,7 @@ export default function FinanceAppPage() {
                         disabled={!canSell || !sellQtyOk || submittingInvest}
                         className="w-full rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-neutral-400"
                       >
-                        {submittingInvest ? 'Сохранение...' : 'Submit Sell'}
+                        {submittingInvest ? 'Saving...' : 'Submit Sell'}
                       </button>
                     </>
                   );
@@ -2146,10 +2146,10 @@ export default function FinanceAppPage() {
 
         {/* Summary */}
         <section className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">
-          <h2 className="mb-4 text-lg font-semibold text-neutral-900">Сводка (в EUR)</h2>
+          <h2 className="mb-4 text-lg font-semibold text-neutral-900">Summary (EUR)</h2>
           <div className="grid gap-4 md:grid-cols-4">
             <div>
-              <p className="text-xs text-neutral-600">Общий баланс (EUR)</p>
+              <p className="text-xs text-neutral-600">Total balance (EUR)</p>
               <p className="text-2xl font-semibold text-neutral-900">
                 €{totals.totalEur.toFixed(2)}
               </p>
@@ -2187,7 +2187,7 @@ export default function FinanceAppPage() {
           </div>
           {totals.usdExcludedFromTotals && (
             <p className="mt-2 text-xs text-yellow-700">
-              Курс FX не загружен: USD-счета временно исключены из EUR-итогов.
+              FX rate not loaded: USD accounts temporarily excluded from EUR totals.
             </p>
           )}
         </section>
@@ -2195,7 +2195,7 @@ export default function FinanceAppPage() {
         {/* Accounts list */}
         <section className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-lg font-semibold text-neutral-900">Счета</h2>
+            <h2 className="text-lg font-semibold text-neutral-900">Accounts</h2>
             {accounts.length > 0 && (
               <div className="flex items-center gap-2">
                 <div className="relative">
@@ -2204,7 +2204,7 @@ export default function FinanceAppPage() {
                     onClick={() => setAccountsFilterOpen((o) => !o)}
                     className="rounded-lg border border-neutral-300 px-3 py-1.5 text-xs font-medium text-neutral-700 transition hover:bg-neutral-100"
                   >
-                    Фильтр счетов
+                    Account filter
                   </button>
                   {accountsFilterOpen && (
                   <div className="absolute right-0 top-full z-10 mt-1 min-w-[200px] rounded-lg border border-neutral-200 bg-white py-2 shadow-lg">
@@ -2230,14 +2230,14 @@ export default function FinanceAppPage() {
                         onClick={selectAllAccounts}
                         className="rounded px-2 py-1 text-xs font-medium text-neutral-600 hover:bg-neutral-100"
                       >
-                        Выбрать все
+                        Select all
                       </button>
                       <button
                         type="button"
                         onClick={clearAccountsFilter}
                         className="rounded px-2 py-1 text-xs font-medium text-neutral-600 hover:bg-neutral-100"
                       >
-                        Сбросить
+                        Clear
                       </button>
                     </div>
                   </div>
@@ -2247,7 +2247,7 @@ export default function FinanceAppPage() {
             )}
           </div>
           {accounts.length === 0 ? (
-            <p className="text-sm text-neutral-600">Нет счетов. Создайте счёт в настройках.</p>
+            <p className="text-sm text-neutral-600">No accounts. Create an account in settings.</p>
           ) : (
             <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
               {visibleAccounts.map((account) => {
@@ -2296,7 +2296,7 @@ export default function FinanceAppPage() {
                       </p>
                       {account.kind === 'credit' && accBalance.creditUsed !== undefined && (
                         <p className="mt-1 text-xs text-neutral-600">
-                          Использовано кредита: {formatMoney(accBalance.creditUsed, getAccountCurrency(account))} из{' '}
+                          Credit used: {formatMoney(accBalance.creditUsed, getAccountCurrency(account))} из{' '}
                           {formatMoney(account.credit_limit || 0, getAccountCurrency(account))}
                         </p>
                       )}
@@ -2322,7 +2322,7 @@ export default function FinanceAppPage() {
                   ←
                 </button>
                 <span className="text-xs text-neutral-600">
-                  Страница {operationsPage + 1}
+                  Page {operationsPage + 1}
                 </span>
                 <button
                   onClick={() => setOperationsPage((p) => p + 1)}
@@ -2338,13 +2338,13 @@ export default function FinanceAppPage() {
             </div>
             <div className="flex flex-wrap gap-3 text-xs">
               <div className="flex flex-col gap-1">
-                <span className="font-medium text-neutral-700">Счёт</span>
+                <span className="font-medium text-neutral-700">Account</span>
                 <select
                   value={operationsAccountFilter}
                   onChange={(e) => setOperationsAccountFilter(e.target.value)}
                   className="min-w-[160px] rounded-lg border border-neutral-300 bg-white px-2 py-1 text-xs outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
                 >
-                  <option value="all">Все счета</option>
+                  <option value="all">All accounts</option>
                   {accounts.map((acc) => (
                     <option key={acc.id} value={acc.id}>
                       {acc.name}
@@ -2353,13 +2353,13 @@ export default function FinanceAppPage() {
                 </select>
               </div>
               <div className="flex flex-col gap-1">
-                <span className="font-medium text-neutral-700">Категория</span>
+                <span className="font-medium text-neutral-700">Category</span>
                 <select
                   value={operationsCategoryFilter}
                   onChange={(e) => setOperationsCategoryFilter(e.target.value)}
                   className="min-w-[160px] rounded-lg border border-neutral-300 bg-white px-2 py-1 text-xs outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
                 >
-                  <option value="all">Все категории</option>
+                  <option value="all">All categories</option>
                   {categories.map((cat) => (
                     <option key={cat.id} value={cat.id}>
                       {cat.name}
@@ -2368,7 +2368,7 @@ export default function FinanceAppPage() {
                 </select>
               </div>
               <div className="flex flex-col gap-1">
-                <span className="font-medium text-neutral-700">Тип</span>
+                <span className="font-medium text-neutral-700">Type</span>
                 <div className="flex flex-wrap gap-1">
                   <button
                     type="button"
@@ -2379,7 +2379,7 @@ export default function FinanceAppPage() {
                         : 'border-neutral-300 bg-white text-neutral-800 hover:bg-neutral-100'
                     }`}
                   >
-                    Все
+                    All
                   </button>
                   <button
                     type="button"
@@ -2390,7 +2390,7 @@ export default function FinanceAppPage() {
                         : 'border-neutral-300 bg-white text-neutral-800 hover:bg-neutral-100'
                     }`}
                   >
-                    Доход
+                    Income
                   </button>
                   <button
                     type="button"
@@ -2401,7 +2401,7 @@ export default function FinanceAppPage() {
                         : 'border-neutral-300 bg-white text-neutral-800 hover:bg-neutral-100'
                     }`}
                   >
-                    Расход
+                    Expense
                   </button>
                   <button
                     type="button"
@@ -2412,7 +2412,7 @@ export default function FinanceAppPage() {
                         : 'border-neutral-300 bg-white text-neutral-800 hover:bg-neutral-100'
                     }`}
                   >
-                    Перевод
+                    Transfer
                   </button>
                 </div>
               </div>
@@ -2523,7 +2523,7 @@ export default function FinanceAppPage() {
 
             if (paginatedOperations.length === 0) {
               return (
-                <p className="text-sm text-neutral-600">Нет операций. Добавьте первую операцию.</p>
+                <p className="text-sm text-neutral-600">No operations. Add your first operation.</p>
               );
             }
 
@@ -2548,9 +2548,9 @@ export default function FinanceAppPage() {
                       </span>
                       <div>
                         <p className="text-sm font-medium text-neutral-900">
-                          {op.type === 'income' && 'Доход'}
-                          {op.type === 'expense' && 'Расход'}
-                          {op.type === 'transfer' && 'Перевод'}
+                          {op.type === 'income' && 'Income'}
+                          {op.type === 'expense' && 'Expense'}
+                          {op.type === 'transfer' && 'Transfer'}
                         </p>
                         <div className="text-xs text-neutral-600">
                           {op.type === 'transfer' ? (
@@ -2649,7 +2649,7 @@ export default function FinanceAppPage() {
             </div>
           )}
           {investmentTrades.length === 0 ? (
-            <p className="text-sm text-neutral-600">Нет сделок с ценными бумагами.</p>
+            <p className="text-sm text-neutral-600">No securities trades.</p>
           ) : (
             <div className="space-y-2">
               {investmentTrades.map((trade) => {
@@ -2676,7 +2676,7 @@ export default function FinanceAppPage() {
                           {trade.side === 'buy' ? 'Buy' : 'Sell'} {symbol} × {trade.quantity}
                         </p>
                         <div className="text-xs text-neutral-600">
-                          {brokerAccount?.name ?? '—'} • {trade.price_per_unit} {curSym}/ед.
+                          {brokerAccount?.name ?? '—'} • {trade.price_per_unit} {curSym}/unit
                           {trade.fee > 0 && ` • fee ${trade.fee} ${curSym}`}
                         </div>
                         <p className="text-xs text-neutral-500">
@@ -2730,7 +2730,7 @@ export default function FinanceAppPage() {
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
               <div className="w-full max-w-md rounded-2xl border border-neutral-200 bg-white p-6 shadow-lg">
                 <h3 className="mb-4 text-lg font-semibold text-neutral-900">
-                  Редактировать сделку {trade.side === 'buy' ? 'Buy' : 'Sell'} {symbol}
+                  Edit trade {trade.side === 'buy' ? 'Buy' : 'Sell'} {symbol}
                 </h3>
 
                 {tradeEditError && (
@@ -2741,7 +2741,7 @@ export default function FinanceAppPage() {
 
                 <div className="space-y-3">
                   <div>
-                    <label className="block text-xs font-medium text-neutral-700">Количество</label>
+                    <label className="block text-xs font-medium text-neutral-700">Quantity</label>
                     <input
                       type="text"
                       value={editTradeQuantity}
@@ -2750,12 +2750,12 @@ export default function FinanceAppPage() {
                       placeholder="0"
                     />
                     <p className="mt-1 text-xs text-neutral-500">
-                      Можно вводить выражение: 5+6-2, поддерживаются + - * / ( )
+                      You can enter expressions: 5+6-2, supports + - * / ( )
                     </p>
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-neutral-700">
-                      Цена за единицу ({curSym})
+                      Price per unit ({curSym})
                     </label>
                     <input
                       type="text"
@@ -2765,12 +2765,12 @@ export default function FinanceAppPage() {
                       placeholder="0"
                     />
                     <p className="mt-1 text-xs text-neutral-500">
-                      Можно вводить выражение: 5+6-2, поддерживаются + - * / ( )
+                      You can enter expressions: 5+6-2, supports + - * / ( )
                     </p>
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-neutral-700">
-                      Комиссия ({curSym})
+                      Fee ({curSym})
                     </label>
                     <input
                       type="text"
@@ -2780,19 +2780,19 @@ export default function FinanceAppPage() {
                       placeholder="0"
                     />
                     <p className="mt-1 text-xs text-neutral-500">
-                      Можно вводить выражение: 5+6-2, поддерживаются + - * / ( )
+                      You can enter expressions: 5+6-2, supports + - * / ( )
                     </p>
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-neutral-700">
-                      Комментарий (опционально)
+                      Comment (optional)
                     </label>
                     <input
                       type="text"
                       value={editTradeComment}
                       onChange={(e) => setEditTradeComment(e.target.value)}
                       className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
-                      placeholder="Комментарий"
+                      placeholder="Comment"
                     />
                   </div>
                 </div>
@@ -2803,14 +2803,14 @@ export default function FinanceAppPage() {
                     disabled={savingTradeEdit}
                     className="flex-1 rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-800 transition hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    Отмена
+                    Cancel
                   </button>
                   <button
                     onClick={handleSaveEditTrade}
                     disabled={savingTradeEdit}
                     className="flex-1 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-neutral-400"
                   >
-                    {savingTradeEdit ? 'Сохранение...' : 'Сохранить'}
+                    {savingTradeEdit ? 'Saving...' : 'Save'}
                   </button>
                 </div>
               </div>
@@ -2823,12 +2823,12 @@ export default function FinanceAppPage() {
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
             <div className="w-full max-w-md rounded-2xl border border-neutral-200 bg-white p-6 shadow-lg">
               <h3 className="mb-4 text-lg font-semibold text-neutral-900">
-                Редактировать {editingOperation.type === 'income' ? 'Доход' : editingOperation.type === 'expense' ? 'Расход' : 'Перевод'}
+                Edit {editingOperation.type === 'income' ? 'Income' : editingOperation.type === 'expense' ? 'Expense' : 'Transfer'}
               </h3>
 
               <div className="space-y-3">
                 <div>
-                  <label className="block text-xs font-medium text-neutral-700">Сумма</label>
+                  <label className="block text-xs font-medium text-neutral-700">Amount</label>
                   <input
                     type="text"
                     value={editAmount}
@@ -2837,21 +2837,21 @@ export default function FinanceAppPage() {
                     placeholder="0.00"
                   />
                   <p className="mt-1 text-xs text-neutral-500">
-                    Можно вводить выражение: 5+6-2, поддерживаются + - * / ( )
+                    You can enter expressions: 5+6-2, supports + - * / ( )
                   </p>
                 </div>
 
                 {editingOperation.type === 'transfer' ? (
                   <>
                     <div>
-                      <label className="block text-xs font-medium text-neutral-700">Откуда</label>
+                      <label className="block text-xs font-medium text-neutral-700">From</label>
                       <select
                         value={editFromAccount}
                         onChange={(e) => setEditFromAccount(e.target.value)}
                         className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
                         disabled
                       >
-                        <option value="">Выберите счёт</option>
+                        <option value="">Select account</option>
                         {accounts.map((acc) => (
                           <option key={acc.id} value={acc.id}>
                             {acc.name} ({acc.kind})
@@ -2859,18 +2859,18 @@ export default function FinanceAppPage() {
                         ))}
                       </select>
                       <p className="mt-1 text-xs text-neutral-500">
-                        Счета для Transfer нельзя изменить
+                        Accounts for Transfer cannot be changed
                       </p>
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-neutral-700">Куда</label>
+                      <label className="block text-xs font-medium text-neutral-700">To</label>
                       <select
                         value={editToAccount}
                         onChange={(e) => setEditToAccount(e.target.value)}
                         className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
                         disabled
                       >
-                        <option value="">Выберите счёт</option>
+                        <option value="">Select account</option>
                         {accounts.map((acc) => (
                           <option key={acc.id} value={acc.id}>
                             {acc.name} ({acc.kind})
@@ -2883,14 +2883,14 @@ export default function FinanceAppPage() {
                   <>
                     <div>
                       <label className="block text-xs font-medium text-neutral-700">
-                        {editingOperation.type === 'income' ? 'Куда' : 'Откуда'}
+                        {editingOperation.type === 'income' ? 'To' : 'From'}
                       </label>
                       <select
                         value={editAccount}
                         onChange={(e) => setEditAccount(e.target.value)}
                         className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
                       >
-                        <option value="">Выберите счёт</option>
+                        <option value="">Select account</option>
                         {accounts.map((acc) => (
                           <option key={acc.id} value={acc.id}>
                             {acc.name} ({acc.kind})
@@ -2900,14 +2900,14 @@ export default function FinanceAppPage() {
                     </div>
                     <div>
                       <label className="block text-xs font-medium text-neutral-700">
-                        Категория (опционально)
+                        Category (optional)
                       </label>
                       <select
                         value={editCategory}
                         onChange={(e) => setEditCategory(e.target.value)}
                         className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
                       >
-                        <option value="">Без категории</option>
+                        <option value="">No category</option>
                         {(editingOperation.type === 'income' ? incomeCategories : expenseCategories).map((cat) => (
                           <option key={cat.id} value={cat.id}>
                             {cat.name}
@@ -2920,14 +2920,14 @@ export default function FinanceAppPage() {
 
                 <div>
                   <label className="block text-xs font-medium text-neutral-700">
-                    Комментарий (опционально)
+                    Comment (optional)
                   </label>
                   <input
                     type="text"
                     value={editComment}
                     onChange={(e) => setEditComment(e.target.value)}
                     className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
-                    placeholder="Комментарий"
+                    placeholder="Comment"
                   />
                 </div>
               </div>
@@ -2938,14 +2938,14 @@ export default function FinanceAppPage() {
                   disabled={savingEdit}
                   className="flex-1 rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-800 transition hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  Отмена
+                  Cancel
                 </button>
                 <button
                   onClick={handleSaveEdit}
                   disabled={savingEdit}
                   className="flex-1 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-neutral-400"
                 >
-                  {savingEdit ? 'Сохранение...' : 'Сохранить'}
+                  {savingEdit ? 'Saving...' : 'Save'}
                 </button>
               </div>
             </div>

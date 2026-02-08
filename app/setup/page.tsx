@@ -77,12 +77,12 @@ interface Budget {
 
 // Parse base_limit_eur: accepts "," and "." as decimal separator, rounds to 2 decimals
 function parseBaseLimitEur(input: string): { ok: true; value: number } | { ok: false; error: string } {
-  if (!input || !input.trim()) return { ok: false, error: 'Введите сумму.' };
+  if (!input || !input.trim()) return { ok: false, error: 'Enter amount.' };
   const normalized = input.trim().replace(/,/g, '.');
   const num = Number(normalized);
-  if (Number.isNaN(num)) return { ok: false, error: 'Некорректное число.' };
+  if (Number.isNaN(num)) return { ok: false, error: 'Invalid number.' };
   const rounded = Math.round(num * 100) / 100;
-  if (rounded <= 0) return { ok: false, error: 'Лимит должен быть больше 0.' };
+  if (rounded <= 0) return { ok: false, error: 'Limit must be greater than 0.' };
   return { ok: true, value: rounded };
 }
 
@@ -615,23 +615,23 @@ export default function SetupPage() {
     setAccountFormError(null);
 
     if (!accountName.trim()) {
-      setAccountFormError('Название счёта обязательно.');
+      setAccountFormError('Account name is required.');
       return;
     }
 
     if (!accountCurrency) {
-      setAccountFormError('Валюта обязательна.');
+      setAccountFormError('Currency is required.');
       return;
     }
 
     if (!startingBalance.trim()) {
-      setAccountFormError('Начальный баланс обязателен.');
+      setAccountFormError('Starting balance is required.');
       return;
     }
 
     const startingBalanceNum = Number(startingBalance);
     if (Number.isNaN(startingBalanceNum)) {
-      setAccountFormError('Начальный баланс должен быть числом.');
+      setAccountFormError('Starting balance must be a number.');
       return;
     }
 
@@ -643,32 +643,32 @@ export default function SetupPage() {
     if (accountKind === 'credit') {
       // Для credit счетов не используем warning_threshold
       if (debitAccounts.length === 0) {
-        setAccountFormError('Сначала создайте дебетовый счёт для привязки кредитки.');
+        setAccountFormError('Create a debit account first to link the credit card.');
         return;
       }
 
       if (!creditLimit.trim()) {
-        setAccountFormError('Лимит по кредиту обязателен.');
+        setAccountFormError('Credit limit is required.');
         return;
       }
       creditLimitNum = Number(creditLimit);
       if (Number.isNaN(creditLimitNum) || creditLimitNum <= 0) {
-        setAccountFormError('Лимит по кредиту должен быть положительным числом.');
+        setAccountFormError('Credit limit must be a positive number.');
         return;
       }
 
       if (!creditWarningThreshold.trim()) {
-        setAccountFormError('Порог приближения к лимиту обязателен.');
+        setAccountFormError('Credit warning threshold is required.');
         return;
       }
       creditWarningNum = Number(creditWarningThreshold);
       if (Number.isNaN(creditWarningNum)) {
-        setAccountFormError('Порог приближения к лимиту должен быть числом.');
+        setAccountFormError('Credit warning threshold must be a number.');
         return;
       }
 
       if (!debitAnchorAccountId) {
-        setAccountFormError('Выберите дебетовый счёт для привязки кредитной карты.');
+        setAccountFormError('Select a debit account to link the credit card.');
         return;
       }
       debitAnchorId = debitAnchorAccountId;
@@ -677,7 +677,7 @@ export default function SetupPage() {
       const warningThresholdValue = warningThreshold || '0';
       warningThresholdNum = Number(warningThresholdValue);
       if (Number.isNaN(warningThresholdNum)) {
-        setAccountFormError('Порог предупреждения должен быть числом.');
+        setAccountFormError('Warning threshold must be a number.');
         return;
       }
     }
@@ -772,18 +772,18 @@ export default function SetupPage() {
     if (!account) return;
 
     if (!editAccountName.trim()) {
-      setEditError('Название счёта обязательно.');
+      setEditError('Account name is required.');
       return;
     }
 
     if (!editAccountCurrency) {
-      setEditError('Валюта обязательна.');
+      setEditError('Currency is required.');
       return;
     }
 
     const startingBalanceNum = Number(editStartingBalance);
     if (Number.isNaN(startingBalanceNum)) {
-      setEditError('Начальный баланс должен быть числом.');
+      setEditError('Starting balance must be a number.');
       return;
     }
 
@@ -794,27 +794,27 @@ export default function SetupPage() {
 
     if (account.kind === 'credit') {
       if (!editCreditLimit.trim()) {
-        setEditError('Лимит по кредиту обязателен.');
+        setEditError('Credit limit is required.');
         return;
       }
       creditLimitNum = Number(editCreditLimit);
       if (Number.isNaN(creditLimitNum) || creditLimitNum <= 0) {
-        setEditError('Лимит по кредиту должен быть положительным числом.');
+        setEditError('Credit limit must be a positive number.');
         return;
       }
 
       if (!editCreditWarningThreshold.trim()) {
-        setEditError('Порог приближения к лимиту обязателен.');
+        setEditError('Credit warning threshold is required.');
         return;
       }
       creditWarningNum = Number(editCreditWarningThreshold);
       if (Number.isNaN(creditWarningNum) || creditWarningNum < 0) {
-        setEditError('Порог приближения к лимиту должен быть неотрицательным числом.');
+        setEditError('Credit warning threshold must be a non-negative number.');
         return;
       }
 
       if (!editDebitAnchorAccountId) {
-        setEditError('Выберите дебетовый счёт для привязки кредитной карты.');
+        setEditError('Select a debit account to link the credit card.');
         return;
       }
       debitAnchorId = editDebitAnchorAccountId;
@@ -822,7 +822,7 @@ export default function SetupPage() {
       const warningThresholdValue = editWarningThreshold || '0';
       warningThresholdNum = Number(warningThresholdValue);
       if (Number.isNaN(warningThresholdNum) || warningThresholdNum < 0) {
-        setEditError('Порог предупреждения должен быть неотрицательным числом.');
+        setEditError('Warning threshold must be a non-negative number.');
         return;
       }
     }
@@ -869,7 +869,7 @@ export default function SetupPage() {
   };
 
   const handleDeleteAccount = async (accountId: string) => {
-    if (!window.confirm('Вы уверены, что хотите удалить этот счёт?')) {
+    if (!window.confirm('Are you sure you want to delete this account?')) {
       return;
     }
 
@@ -884,7 +884,7 @@ export default function SetupPage() {
 
     if (transactionsCount && transactionsCount > 0) {
       setDeleteError(
-        'Нельзя удалить счёт: по нему есть операции. В v1 удаление возможно только для пустых счетов.',
+        'Cannot delete account: it has transactions. In v1 deletion is only allowed for empty accounts.',
       );
       return;
     }
@@ -897,7 +897,7 @@ export default function SetupPage() {
 
     if (transfersCount && transfersCount > 0) {
       setDeleteError(
-        'Нельзя удалить счёт: по нему есть операции. В v1 удаление возможно только для пустых счетов.',
+        'Cannot delete account: it has transactions. In v1 deletion is only allowed for empty accounts.',
       );
       return;
     }
@@ -912,7 +912,7 @@ export default function SetupPage() {
 
       if (positionsCount && positionsCount > 0) {
         setDeleteError(
-          'Нельзя удалить счёт: по нему есть операции. В v1 удаление возможно только для пустых счетов.',
+          'Cannot delete account: it has transactions. In v1 deletion is only allowed for empty accounts.',
         );
         return;
       }
@@ -927,7 +927,7 @@ export default function SetupPage() {
 
       if (linkedCreditCount && linkedCreditCount > 0) {
         setDeleteError(
-          'Нельзя удалить дебетовый счёт, пока к нему привязаны кредитные счета.',
+          'Cannot delete debit account while credit accounts are linked to it.',
         );
         return;
       }
@@ -952,7 +952,7 @@ export default function SetupPage() {
     setCategoryFormError(null);
 
     if (!categoryName.trim()) {
-      setCategoryFormError('Название категории обязательно.');
+      setCategoryFormError('Category name is required.');
       return;
     }
 
@@ -1002,7 +1002,7 @@ export default function SetupPage() {
     setCategoryEditError(null);
 
     if (!editCategoryName.trim()) {
-      setCategoryEditError('Название категории обязательно.');
+      setCategoryEditError('Category name is required.');
       return;
     }
 
@@ -1018,7 +1018,7 @@ export default function SetupPage() {
     if (error) {
       // Проверка на unique constraint
       if (error.code === '23505' || error.message.includes('unique') || error.message.includes('duplicate')) {
-        setCategoryEditError('Категория с таким названием уже существует для этого типа.');
+        setCategoryEditError('A category with this name already exists for this type.');
       } else {
         setCategoryEditError(error.message);
       }
@@ -1030,7 +1030,7 @@ export default function SetupPage() {
   };
 
   const handleDeleteCategory = async (categoryId: string) => {
-    if (!window.confirm('Вы уверены, что хотите удалить эту категорию?')) {
+    if (!window.confirm('Are you sure you want to delete this category?')) {
       return;
     }
 
@@ -1046,7 +1046,7 @@ export default function SetupPage() {
         error.message.includes('violates foreign key constraint')
       ) {
         setCategoryDeleteError(
-          'Нельзя удалить категорию: она уже используется в операциях. В v1 удаление возможно только для неиспользуемых категорий.',
+          'Cannot delete category: it is already used in transactions. In v1 deletion is only allowed for unused categories.',
         );
       } else {
         setCategoryDeleteError(error.message);
@@ -1077,7 +1077,7 @@ export default function SetupPage() {
       // Находим индекс текущей категории
       const currentIndex = categoriesOfKind.findIndex((c) => c.id === categoryId);
       if (currentIndex === -1) {
-        setMoveCategoryError('Категория не найдена.');
+        setMoveCategoryError('Category not found.');
         setMovingCategoryId(null);
         return;
       }
@@ -1102,7 +1102,7 @@ export default function SetupPage() {
         .eq('user_id', userId);
 
       if (error1) {
-        setMoveCategoryError(`Ошибка при перемещении: ${error1.message}`);
+        setMoveCategoryError(`Error moving: ${error1.message}`);
         setMovingCategoryId(null);
         return;
       }
@@ -1115,7 +1115,7 @@ export default function SetupPage() {
         .eq('user_id', userId);
 
       if (error2) {
-        setMoveCategoryError(`Ошибка при перемещении: ${error2.message}`);
+        setMoveCategoryError(`Error moving: ${error2.message}`);
         setMovingCategoryId(null);
         return;
       }
@@ -1128,7 +1128,7 @@ export default function SetupPage() {
         .eq('user_id', userId);
 
       if (error3) {
-        setMoveCategoryError(`Ошибка при перемещении: ${error3.message}`);
+        setMoveCategoryError(`Error moving: ${error3.message}`);
         setMovingCategoryId(null);
         return;
       }
@@ -1136,7 +1136,7 @@ export default function SetupPage() {
       // Успешно - обновляем список категорий
       await loadCategories();
     } catch (error: any) {
-      setMoveCategoryError(`Неожиданная ошибка: ${error.message || 'Неизвестная ошибка'}`);
+      setMoveCategoryError(`Unexpected error: ${error.message || 'Unknown error'}`);
     } finally {
       setMovingCategoryId(null);
     }
@@ -1156,7 +1156,7 @@ export default function SetupPage() {
     setBudgetSuccess(null);
 
     if (!budgetName.trim()) {
-      setBudgetFormError('Название бюджета обязательно.');
+      setBudgetFormError('Budget name is required.');
       return;
     }
 
@@ -1167,12 +1167,12 @@ export default function SetupPage() {
     }
 
     if (!budgetStartDate.trim()) {
-      setBudgetFormError('Дата начала обязательна.');
+      setBudgetFormError('Start date is required.');
       return;
     }
 
     if (budgetSelectedCategories.size === 0) {
-      setBudgetFormError('Выберите хотя бы одну категорию расхода.');
+      setBudgetFormError('Select at least one expense category.');
       return;
     }
 
@@ -1183,11 +1183,11 @@ export default function SetupPage() {
       if (budgetIds.length > 0) {
         const catName = categories.find((c) => c.id === catId)?.name || catId;
         const otherBudgets = budgetIds.map((bid) => budgets.find((b) => b.id === bid)?.name || bid).join(', ');
-        conflicting.push(`${catName} (в бюджетах: ${otherBudgets})`);
+        conflicting.push(`${catName} (in budgets: ${otherBudgets})`);
       }
     });
     if (conflicting.length > 0) {
-      setBudgetFormError(`Категория уже назначена другому бюджету: ${conflicting.join('; ')}`);
+      setBudgetFormError(`Category already assigned to another budget: ${conflicting.join('; ')}`);
       return;
     }
 
@@ -1232,7 +1232,7 @@ export default function SetupPage() {
       setBudgetStartDate('');
       setBudgetCarryOver(false);
       setBudgetSelectedCategories(new Set());
-      setBudgetSuccess('Бюджет создан.');
+      setBudgetSuccess('Budget created.');
       await loadBudgets();
     } finally {
       setBudgetSubmitting(false);
@@ -1269,7 +1269,7 @@ export default function SetupPage() {
     setBudgetSuccess(null);
 
     if (!editBudgetName.trim()) {
-      setBudgetEditError('Название бюджета обязательно.');
+      setBudgetEditError('Budget name is required.');
       return;
     }
 
@@ -1280,12 +1280,12 @@ export default function SetupPage() {
     }
 
     if (!editBudgetStartDate.trim()) {
-      setBudgetEditError('Дата начала обязательна.');
+      setBudgetEditError('Start date is required.');
       return;
     }
 
     if (editBudgetSelectedCategories.size === 0) {
-      setBudgetEditError('Выберите хотя бы одну категорию расхода.');
+      setBudgetEditError('Select at least one expense category.');
       return;
     }
 
@@ -1299,11 +1299,11 @@ export default function SetupPage() {
         const otherBudgets = otherBudgetIds
           .map((bid) => budgets.find((b) => b.id === bid)?.name || bid)
           .join(', ');
-        conflicting.push(`${catName} (в бюджетах: ${otherBudgets})`);
+        conflicting.push(`${catName} (in budgets: ${otherBudgets})`);
       }
     });
     if (conflicting.length > 0) {
-      setBudgetEditError(`Категория уже назначена другому бюджету: ${conflicting.join('; ')}`);
+      setBudgetEditError(`Category already assigned to another budget: ${conflicting.join('; ')}`);
       return;
     }
 
@@ -1341,7 +1341,7 @@ export default function SetupPage() {
         return;
       }
 
-      setBudgetSuccess('Бюджет обновлён.');
+      setBudgetSuccess('Budget updated.');
       cancelEditBudget();
       await loadBudgets();
     } finally {
@@ -1350,7 +1350,7 @@ export default function SetupPage() {
   };
 
   const handleDeleteBudget = async (budgetId: string) => {
-    if (!window.confirm('Вы уверены, что хотите удалить этот бюджет?')) return;
+    if (!window.confirm('Are you sure you want to delete this budget?')) return;
 
     setBudgetDeleteError(null);
     setBudgetSuccess(null);
@@ -1369,7 +1369,7 @@ export default function SetupPage() {
       return;
     }
 
-    setBudgetSuccess('Бюджет удалён.');
+    setBudgetSuccess('Budget deleted.');
     cancelEditBudget();
     await loadBudgets();
   };
@@ -1377,17 +1377,17 @@ export default function SetupPage() {
   const handleClearPeriod = async () => {
     // Валидация
     if (!dateFrom || !dateTo) {
-      setClearPeriodError('Обе даты обязательны для заполнения.');
+      setClearPeriodError('Both dates are required.');
       return;
     }
 
     if (dateFrom > dateTo) {
-      setClearPeriodError('Дата начала не может быть позже даты окончания.');
+      setClearPeriodError('Start date cannot be after end date.');
       return;
     }
 
     // Подтверждение
-    if (!window.confirm(`Удалить операции с ${dateFrom} по ${dateTo}? Это нельзя отменить.`)) {
+    if (!window.confirm(`Delete transactions from ${dateFrom} to ${dateTo}? This cannot be undone.`)) {
       return;
     }
 
@@ -1399,7 +1399,7 @@ export default function SetupPage() {
       // Получаем текущую сессию
       const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
       if (sessionError || !sessionData?.session?.user?.id) {
-        setClearPeriodError('Не удалось получить сессию пользователя.');
+        setClearPeriodError('Failed to get user session.');
         setClearingPeriod(false);
         return;
       }
@@ -1423,7 +1423,7 @@ export default function SetupPage() {
         .lt('created_at', endISO);
 
       if (transactionsError) {
-        setClearPeriodError(`Ошибка при удалении транзакций: ${transactionsError.message}`);
+        setClearPeriodError(`Error deleting transactions: ${transactionsError.message}`);
         setClearingPeriod(false);
         return;
       }
@@ -1437,19 +1437,19 @@ export default function SetupPage() {
         .lt('created_at', endISO);
 
       if (transfersError) {
-        setClearPeriodError(`Ошибка при удалении переводов: ${transfersError.message}`);
+        setClearPeriodError(`Error deleting transfers: ${transfersError.message}`);
         setClearingPeriod(false);
         return;
       }
 
       // Успех
-      setClearPeriodSuccess('Операции за период удалены');
+      setClearPeriodSuccess('Transactions for period deleted');
       setClearingPeriod(false);
       // Очищаем поля дат
       setDateFrom('');
       setDateTo('');
     } catch (error: any) {
-      setClearPeriodError(`Неожиданная ошибка: ${error.message || 'Неизвестная ошибка'}`);
+      setClearPeriodError(`Unexpected error: ${error.message || 'Unknown error'}`);
       setClearingPeriod(false);
     }
   };
@@ -1543,13 +1543,13 @@ export default function SetupPage() {
     setPositionFormError(null);
 
     if (!positionSymbol.trim()) {
-      setPositionFormError('Символ обязателен.');
+      setPositionFormError('Symbol is required.');
       return;
     }
 
     const brokerAccount = accounts.find((a) => a.id === selectedBrokerAccountId);
     if (!brokerAccount || !brokerAccount.currency) {
-      setPositionFormError('Не удалось найти брокерский счёт или валюта не задана.');
+      setPositionFormError('Broker account not found or currency not set.');
       return;
     }
 
@@ -1571,7 +1571,7 @@ export default function SetupPage() {
       } catch (parseError) {
         setPositionSubmitting(false);
         setPositionFormError(
-          'Не удалось получить цену с Finnhub. Попробуйте позже.',
+          'Failed to get price from Finnhub. Try again later.',
         );
         return;
       }
@@ -1580,11 +1580,11 @@ export default function SetupPage() {
         setPositionSubmitting(false);
         if (quoteResponse.status === 404) {
           setPositionFormError(
-            'Инструмент не найден на Finnhub или для него недоступна цена. Проверьте символ.',
+            'Instrument not found on Finnhub or price unavailable. Check symbol.',
           );
         } else {
           setPositionFormError(
-            'Не удалось получить цену с Finnhub. Попробуйте позже.',
+            'Failed to get price from Finnhub. Try again later.',
           );
         }
         return;
@@ -1607,7 +1607,7 @@ export default function SetupPage() {
 
         if (quantityNum < 0) {
           setPositionSubmitting(false);
-          setPositionFormError('Количество не может быть отрицательным.');
+          setPositionFormError('Quantity cannot be negative.');
           return;
         }
       } else {
@@ -1615,13 +1615,13 @@ export default function SetupPage() {
 
         if (!positionAmount.trim() || Number.isNaN(amountNum) || amountNum < 0) {
           setPositionSubmitting(false);
-          setPositionFormError('Введите сумму (0 или больше).');
+          setPositionFormError('Enter amount (0 or greater).');
           return;
         }
 
         if (!finnhubPrice || finnhubPrice <= 0) {
           setPositionSubmitting(false);
-          setPositionFormError('Невозможно рассчитать количество: цена недоступна.');
+          setPositionFormError('Cannot calculate quantity: price unavailable.');
           return;
         }
 
@@ -1631,7 +1631,7 @@ export default function SetupPage() {
       // Общая проверка: NaN / отрицательные значения запрещаем, 0 разрешён
       if (Number.isNaN(quantityNum) || quantityNum < 0) {
         setPositionSubmitting(false);
-        setPositionFormError('Некорректное количество.');
+        setPositionFormError('Invalid quantity.');
         return;
       }
 
@@ -1676,7 +1676,7 @@ export default function SetupPage() {
 
         if (!newInstrument) {
           setPositionSubmitting(false);
-          setPositionFormError('Не удалось создать инструмент.');
+          setPositionFormError('Failed to create instrument.');
           return;
         }
 
@@ -1695,7 +1695,7 @@ export default function SetupPage() {
       if (existingPosition) {
         setPositionSubmitting(false);
         setPositionFormError(
-          'Такая позиция уже существует для этого брокерского счёта. В v1 дубликаты запрещены.',
+          'This position already exists for this broker account. Duplicates are not allowed in v1.',
         );
         return;
       }
@@ -1720,7 +1720,7 @@ export default function SetupPage() {
           positionError.message.includes('duplicate')
         ) {
           setPositionFormError(
-            'Такая позиция уже существует для этого брокерского счёта. В v1 дубликаты запрещены.',
+            'This position already exists for this broker account. Duplicates are not allowed in v1.',
           );
         } else {
           setPositionFormError(positionError.message);
@@ -1767,7 +1767,7 @@ export default function SetupPage() {
     }
     const quantityNum = parsed.value;
     if (quantityNum < 0) {
-      setPositionEditError('Количество не может быть отрицательным.');
+      setPositionEditError('Quantity cannot be negative.');
       return;
     }
 
@@ -1793,7 +1793,7 @@ export default function SetupPage() {
   };
 
   const handleDeletePosition = async (positionId: string) => {
-    if (!window.confirm('Вы уверены, что хотите удалить эту позицию?')) {
+    if (!window.confirm('Are you sure you want to delete this position?')) {
       return;
     }
 
@@ -1839,7 +1839,7 @@ export default function SetupPage() {
   if (!sessionChecked) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-neutral-50 text-neutral-700">
-        Загрузка настроек...
+        Loading settings...
       </div>
     );
   }
@@ -1849,8 +1849,8 @@ export default function SetupPage() {
       <div className="mx-auto flex max-w-5xl flex-col gap-6">
         <header className="flex items-center justify-between rounded-2xl border border-neutral-200 bg-white px-6 py-4 shadow-sm">
           <div>
-            <h1 className="text-xl font-semibold text-neutral-900">Настройки</h1>
-            <p className="text-sm text-neutral-600">Управляйте счетами и категориями</p>
+            <h1 className="text-xl font-semibold text-neutral-900">Settings</h1>
+            <p className="text-sm text-neutral-600">Manage accounts and categories</p>
           </div>
           <div className="flex items-center gap-3">
             <button
@@ -1864,13 +1864,13 @@ export default function SetupPage() {
               onClick={() => router.push('/app')}
               className="rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-800 transition hover:bg-neutral-100"
             >
-              На главный
+              Dashboard
             </button>
             <button
               onClick={() => router.push('/stats')}
               className="rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-800 transition hover:bg-neutral-100"
             >
-              Статистика
+              Statistics
             </button>
             <button
               onClick={handleLogout}
@@ -1883,7 +1883,7 @@ export default function SetupPage() {
 
         {refreshLoading && (
           <div className="rounded-lg bg-neutral-100 px-4 py-3 text-sm text-neutral-700">
-            Обновляем котировки и FX...
+            Refreshing quotes and FX...
           </div>
         )}
 
@@ -1901,9 +1901,9 @@ export default function SetupPage() {
           {/* Accounts block */}
           <section className="flex flex-col gap-4 rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-neutral-900">Счета</h2>
+              <h2 className="text-lg font-semibold text-neutral-900">Accounts</h2>
               {accountsLoading && (
-                <span className="text-xs text-neutral-500">Загрузка...</span>
+                <span className="text-xs text-neutral-500">Loading...</span>
               )}
             </div>
 
@@ -1921,7 +1921,7 @@ export default function SetupPage() {
 
             <div className="max-h-96 space-y-2 overflow-auto rounded-lg border border-neutral-200 p-3 text-sm">
               {accounts.length === 0 ? (
-                <p className="text-neutral-600">Нет счетов. Создайте первый.</p>
+                <p className="text-neutral-600">No accounts. Create the first one.</p>
               ) : (
                 accounts.map((acc) => (
                   <div
@@ -1931,7 +1931,7 @@ export default function SetupPage() {
                     {editingAccountId === acc.id ? (
                       <div className="space-y-3">
                         <div className="flex items-center justify-between">
-                          <h4 className="text-sm font-semibold text-neutral-900">Редактирование счёта</h4>
+                          <h4 className="text-sm font-semibold text-neutral-900">Edit account</h4>
                           <button
                             type="button"
                             onClick={cancelEdit}
@@ -1944,7 +1944,7 @@ export default function SetupPage() {
                         <div className="space-y-2">
                           <div className="space-y-1">
                             <label className="block text-xs font-medium text-neutral-700">
-                              Название
+                              Name
                             </label>
                             <input
                               type="text"
@@ -1956,7 +1956,7 @@ export default function SetupPage() {
 
                           <div className="space-y-1">
                             <label className="block text-xs font-medium text-neutral-700">
-                              Валюта
+                              Currency
                             </label>
                             <select
                               value={editAccountCurrency}
@@ -1970,7 +1970,7 @@ export default function SetupPage() {
 
                           <div className="space-y-1">
                             <label className="block text-xs font-medium text-neutral-700">
-                              Начальный баланс ({editAccountCurrency === 'EUR' ? '€' : '$'})
+                              Starting balance ({editAccountCurrency === 'EUR' ? '€' : '$'})
                             </label>
                             <input
                               type="number"
@@ -1983,7 +1983,7 @@ export default function SetupPage() {
                           {acc.kind !== 'credit' && (
                             <div className="space-y-1">
                               <label className="block text-xs font-medium text-neutral-700">
-                                Порог предупреждения ({editAccountCurrency === 'EUR' ? '€' : '$'})
+                                Warning threshold ({editAccountCurrency === 'EUR' ? '€' : '$'})
                               </label>
                               <input
                                 type="number"
@@ -1999,7 +1999,7 @@ export default function SetupPage() {
                             <>
                               <div className="space-y-1">
                                 <label className="block text-xs font-medium text-neutral-700">
-                                  Кредитный лимит ({editAccountCurrency === 'EUR' ? '€' : '$'})
+                                  Credit limit ({editAccountCurrency === 'EUR' ? '€' : '$'})
                                 </label>
                                 <input
                                   type="number"
@@ -2012,7 +2012,7 @@ export default function SetupPage() {
 
                               <div className="space-y-1">
                                 <label className="block text-xs font-medium text-neutral-700">
-                                  Порог приближения к лимиту ({editAccountCurrency === 'EUR' ? '€' : '$'})
+                                  Credit warning threshold ({editAccountCurrency === 'EUR' ? '€' : '$'})
                                 </label>
                                 <input
                                   type="number"
@@ -2025,7 +2025,7 @@ export default function SetupPage() {
 
                               <div className="space-y-1">
                                 <label className="block text-xs font-medium text-neutral-700">
-                                  Дебетовый счёт для привязки
+                                  Linked debit account
                                 </label>
                                 <select
                                   value={editDebitAnchorAccountId}
@@ -2056,7 +2056,7 @@ export default function SetupPage() {
                               disabled={editSubmitting}
                               className="flex-1 rounded-lg bg-neutral-900 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:bg-neutral-400"
                             >
-                              {editSubmitting ? 'Сохранение...' : 'Сохранить'}
+                              {editSubmitting ? 'Saving...' : 'Save'}
                             </button>
                             <button
                               type="button"
@@ -2064,7 +2064,7 @@ export default function SetupPage() {
                               disabled={editSubmitting}
                               className="flex-1 rounded-lg border border-neutral-300 px-3 py-1.5 text-xs font-medium text-neutral-800 transition hover:bg-neutral-100 disabled:cursor-not-allowed"
                             >
-                              Отмена
+                              Cancel
                             </button>
                           </div>
                         </div>
@@ -2085,20 +2085,20 @@ export default function SetupPage() {
                               onClick={() => startEditAccount(acc)}
                               className="text-xs text-blue-600 hover:text-blue-800"
                             >
-                              Редактировать
+                              Edit
                             </button>
                             <button
                               type="button"
                               onClick={() => handleDeleteAccount(acc.id)}
                               className="text-xs text-red-600 hover:text-red-800"
                             >
-                              Удалить
+                              Delete
                             </button>
                           </div>
                         </div>
                         <div className="mt-1 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-neutral-600">
                           <span>
-                            Стартовый баланс:{' '}
+                            Starting balance:{' '}
                             <span className="font-medium">
                               {(acc.currency || 'EUR') === 'EUR' ? '€' : '$'}{acc.starting_balance.toFixed(2)}
                             </span>
@@ -2113,7 +2113,7 @@ export default function SetupPage() {
                           </span>
                           {acc.kind !== 'credit' && (
                             <span>
-                              Порог:{' '}
+                              Threshold:{' '}
                               <span className="font-medium">
                                 {(acc.currency || 'EUR') === 'EUR' ? '€' : '$'}{acc.warning_threshold.toFixed(2)}
                               </span>
@@ -2127,7 +2127,7 @@ export default function SetupPage() {
                           {acc.kind === 'credit' && (
                             <>
                               <span>
-                                Кредитный лимит:{' '}
+                                Credit limit:{' '}
                                 <span className="font-medium">
                                   {(acc.currency || 'EUR') === 'EUR' ? '€' : '$'}{acc.credit_limit?.toFixed(2) || '—'}
                                 </span>
@@ -2138,7 +2138,7 @@ export default function SetupPage() {
                                 )}
                               </span>
                               <span>
-                                Порог приближения к лимиту:{' '}
+                                Credit warning threshold:{' '}
                                 <span className="font-medium">
                                   {(acc.currency || 'EUR') === 'EUR' ? '€' : '$'}{acc.credit_warning_threshold?.toFixed(2) || '—'}
                                 </span>
@@ -2149,7 +2149,7 @@ export default function SetupPage() {
                                 )}
                               </span>
                               <span className="col-span-2">
-                                Привязанный дебетовый счёт:{' '}
+                                Linked debit account:{' '}
                                 <span className="font-medium">
                                   {acc.debit_anchor_account_id
                                     ? accountNameMap.get(acc.debit_anchor_account_id) || acc.debit_anchor_account_id
@@ -2173,7 +2173,7 @@ export default function SetupPage() {
                               disabled={defaultUpdating.has(`${acc.id}-income`)}
                               className="h-3 w-3"
                             />
-                            <span className="text-neutral-700">По умолчанию для income</span>
+                            <span className="text-neutral-700">Default for income</span>
                           </label>
                           <label className="flex items-center gap-2 text-xs">
                             <input
@@ -2183,7 +2183,7 @@ export default function SetupPage() {
                               disabled={defaultUpdating.has(`${acc.id}-expense`)}
                               className="h-3 w-3"
                             />
-                            <span className="text-neutral-700">По умолчанию для expense</span>
+                            <span className="text-neutral-700">Default for expense</span>
                           </label>
                         </div>
                       </>
@@ -2200,11 +2200,11 @@ export default function SetupPage() {
             )}
 
             <p className="text-xs text-neutral-500">
-              Эти счета будут автоматически выбраны на главном экране.
+              These accounts will be automatically selected on the dashboard.
             </p>
 
             <form className="mt-2 space-y-3" onSubmit={handleCreateAccount}>
-              <h3 className="text-sm font-semibold text-neutral-900">Создать счёт</h3>
+              <h3 className="text-sm font-semibold text-neutral-900">Create account</h3>
 
               <div className="space-y-1">
                 <label className="block text-xs font-medium text-neutral-700" htmlFor="account-name">
@@ -2217,14 +2217,14 @@ export default function SetupPage() {
                   onChange={(e) => setAccountName(e.target.value)}
                   required
                   className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
-                  placeholder="Например, Дебетовая карта"
+                  placeholder="e.g. Debit card"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <label className="block text-xs font-medium text-neutral-700" htmlFor="account-kind">
-                    Тип счёта
+                    Account type
                   </label>
                   <select
                     id="account-kind"
@@ -2270,7 +2270,7 @@ export default function SetupPage() {
                   className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
                 />
                 <p className="text-xs text-neutral-500">
-                  Можно вводить отрицательные значения. Примеры: -300 = долг {accountCurrency === 'EUR' ? '300€' : '300$'}; 0 = нет долга/остатка; +1300 = положительный остаток (например PayPal).
+                  You can enter negative values. Examples: -300 = debt {accountCurrency === 'EUR' ? '300€' : '300$'}; 0 = no debt/balance; +1300 = positive balance (e.g. PayPal).
                 </p>
               </div>
 
@@ -2290,7 +2290,7 @@ export default function SetupPage() {
                     className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
                   />
                   <p className="text-xs text-neutral-500">
-                    Оранжевое предупреждение, когда остаток становится маленьким. Пример: 500 → предупреждение при балансе ≤ 500{accountCurrency === 'EUR' ? '€' : '$'}.
+                    Orange warning when balance becomes low. Example: 500 → warning when balance ≤ 500{accountCurrency === 'EUR' ? '€' : '$'}.
                   </p>
                 </div>
               )}
@@ -2311,7 +2311,7 @@ export default function SetupPage() {
                     className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
                   />
                   <p className="text-xs text-neutral-500">
-                    Оранжевое предупреждение, когда остаток становится маленьким. Пример: 500 → предупреждение при балансе ≤ 500{accountCurrency === 'EUR' ? '€' : '$'}.
+                    Orange warning when balance becomes low. Example: 500 → warning when balance ≤ 500{accountCurrency === 'EUR' ? '€' : '$'}.
                   </p>
                 </div>
               )}
@@ -2320,8 +2320,7 @@ export default function SetupPage() {
                 <div className="space-y-2 rounded-lg bg-neutral-50 p-3">
                   {debitAccounts.length === 0 && (
                     <p className="mb-2 text-xs text-red-600">
-                      Сначала создайте дебетовый счёт для привязки кредитки. Создание
-                      кредитного счёта сейчас недоступно.
+                      Create a debit account first to link the credit card. Credit account creation is unavailable.
                     </p>
                   )}
                   <div className="grid grid-cols-2 gap-3">
@@ -2340,7 +2339,7 @@ export default function SetupPage() {
                         className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
                       />
                       <p className="text-xs text-neutral-500">
-                        Введите положительное число. Пример: 10000.
+                        Enter a positive number. Example: 10000.
                       </p>
                     </div>
                     <div className="space-y-1">
@@ -2359,7 +2358,7 @@ export default function SetupPage() {
                         className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
                       />
                       <p className="text-xs text-neutral-500">
-                        Введите положительное число — на сколько {accountCurrency === 'EUR' ? '€' : '$'} до лимита показать предупреждение. Пример: лимит 10000 и порог 500 → предупреждение начнётся при использовании 9500 из 10000.
+                        Enter a positive number — how many {accountCurrency === 'EUR' ? '€' : '$'} before the limit to show warning. Example: limit 10000 and threshold 500 → warning starts when 9500 of 10000 used.
                       </p>
                     </div>
                   </div>
@@ -2369,7 +2368,7 @@ export default function SetupPage() {
                       className="block text-xs font-medium text-neutral-700"
                       htmlFor="debit-anchor-account"
                     >
-                      Дебетовый счёт для привязки
+                      Linked debit account
                     </label>
                     <select
                       id="debit-anchor-account"
@@ -2386,14 +2385,14 @@ export default function SetupPage() {
                       ))}
                     </select>
                     <p className="text-xs text-neutral-500">
-                      Кредитка жёстко привязана к выбранному дебетовому счёту. Это используется для ручного 'погашения кредита' на главном экране.
+                      Credit card is linked to the selected debit account. Used for manual 'credit repayment' on the dashboard.
                     </p>
                   </div>
                 </div>
               )}
 
               <div className="space-y-2 rounded-lg border border-neutral-200 bg-neutral-50 p-3">
-                <p className="text-xs font-medium text-neutral-700">Настройки по умолчанию</p>
+                <p className="text-xs font-medium text-neutral-700">Default settings</p>
                 <label className="flex items-center gap-2 text-xs">
                   <input
                     type="checkbox"
@@ -2401,7 +2400,7 @@ export default function SetupPage() {
                     onChange={(e) => setIsDefaultIncome(e.target.checked)}
                     className="h-3 w-3"
                   />
-                  <span className="text-neutral-700">Сделать по умолчанию для income</span>
+                  <span className="text-neutral-700">Set as default for income</span>
                 </label>
                 <label className="flex items-center gap-2 text-xs">
                   <input
@@ -2410,7 +2409,7 @@ export default function SetupPage() {
                     onChange={(e) => setIsDefaultExpense(e.target.checked)}
                     className="h-3 w-3"
                   />
-                  <span className="text-neutral-700">Сделать по умолчанию для expense</span>
+                  <span className="text-neutral-700">Set as default for expense</span>
                 </label>
               </div>
 
@@ -2425,7 +2424,7 @@ export default function SetupPage() {
                 disabled={accountSubmitting || (accountKind === 'credit' && debitAccounts.length === 0)}
                 className="mt-1 w-full rounded-lg bg-neutral-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:bg-neutral-400"
               >
-                {accountSubmitting ? 'Создание...' : 'Создать счёт'}
+                {accountSubmitting ? 'Creating...' : 'Create account'}
               </button>
             </form>
           </section>
@@ -2433,9 +2432,9 @@ export default function SetupPage() {
           {/* Categories block */}
           <section className="flex flex-col gap-4 rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-neutral-900">Категории</h2>
+              <h2 className="text-lg font-semibold text-neutral-900">Categories</h2>
               {categoriesLoading && (
-                <span className="text-xs text-neutral-500">Загрузка...</span>
+                <span className="text-xs text-neutral-500">Loading...</span>
               )}
             </div>
 
@@ -2464,7 +2463,7 @@ export default function SetupPage() {
                 </h3>
                 <div className="max-h-40 space-y-1 overflow-auto rounded-lg border border-neutral-200 p-3 text-sm">
                   {incomeCategories.length === 0 ? (
-                    <p className="text-neutral-600">Нет категорий доходов.</p>
+                    <p className="text-neutral-600">No income categories.</p>
                   ) : (
                     incomeCategories.map((cat, index) => (
                       <div key={cat.id} className="rounded-md border border-neutral-200 bg-neutral-50 px-2 py-1.5">
@@ -2489,7 +2488,7 @@ export default function SetupPage() {
                                 disabled={categoryEditSubmitting}
                                 className="flex-1 rounded-lg bg-neutral-900 px-2 py-1 text-xs font-medium text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:bg-neutral-400"
                               >
-                                {categoryEditSubmitting ? 'Сохранение...' : 'Сохранить'}
+                                {categoryEditSubmitting ? 'Saving...' : 'Save'}
                               </button>
                               <button
                                 type="button"
@@ -2497,7 +2496,7 @@ export default function SetupPage() {
                                 disabled={categoryEditSubmitting}
                                 className="flex-1 rounded-lg border border-neutral-300 px-2 py-1 text-xs font-medium text-neutral-800 transition hover:bg-neutral-100 disabled:cursor-not-allowed"
                               >
-                                Отмена
+                                Cancel
                               </button>
                             </div>
                           </div>
@@ -2540,7 +2539,7 @@ export default function SetupPage() {
                                 disabled={categoryEditSubmitting || movingCategoryId !== null}
                                 className="text-xs text-blue-600 hover:text-blue-800 disabled:cursor-not-allowed disabled:opacity-50"
                               >
-                                Редактировать
+                                Edit
                               </button>
                               <button
                                 type="button"
@@ -2548,7 +2547,7 @@ export default function SetupPage() {
                                 disabled={categoryEditSubmitting || movingCategoryId !== null}
                                 className="text-xs text-red-600 hover:text-red-800 disabled:cursor-not-allowed disabled:opacity-50"
                               >
-                                Удалить
+                                Delete
                               </button>
                             </div>
                           </div>
@@ -2564,7 +2563,7 @@ export default function SetupPage() {
                 </h3>
                 <div className="max-h-40 space-y-1 overflow-auto rounded-lg border border-neutral-200 p-3 text-sm">
                   {expenseCategories.length === 0 ? (
-                    <p className="text-neutral-600">Нет категорий расходов.</p>
+                    <p className="text-neutral-600">No expense categories.</p>
                   ) : (
                     expenseCategories.map((cat, index) => (
                       <div key={cat.id} className="rounded-md border border-neutral-200 bg-neutral-50 px-2 py-1.5">
@@ -2589,7 +2588,7 @@ export default function SetupPage() {
                                 disabled={categoryEditSubmitting}
                                 className="flex-1 rounded-lg bg-neutral-900 px-2 py-1 text-xs font-medium text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:bg-neutral-400"
                               >
-                                {categoryEditSubmitting ? 'Сохранение...' : 'Сохранить'}
+                                {categoryEditSubmitting ? 'Saving...' : 'Save'}
                               </button>
                               <button
                                 type="button"
@@ -2597,7 +2596,7 @@ export default function SetupPage() {
                                 disabled={categoryEditSubmitting}
                                 className="flex-1 rounded-lg border border-neutral-300 px-2 py-1 text-xs font-medium text-neutral-800 transition hover:bg-neutral-100 disabled:cursor-not-allowed"
                               >
-                                Отмена
+                                Cancel
                               </button>
                             </div>
                           </div>
@@ -2640,7 +2639,7 @@ export default function SetupPage() {
                                 disabled={categoryEditSubmitting || movingCategoryId !== null}
                                 className="text-xs text-blue-600 hover:text-blue-800 disabled:cursor-not-allowed disabled:opacity-50"
                               >
-                                Редактировать
+                                Edit
                               </button>
                               <button
                                 type="button"
@@ -2648,7 +2647,7 @@ export default function SetupPage() {
                                 disabled={categoryEditSubmitting || movingCategoryId !== null}
                                 className="text-xs text-red-600 hover:text-red-800 disabled:cursor-not-allowed disabled:opacity-50"
                               >
-                                Удалить
+                                Delete
                               </button>
                             </div>
                           </div>
@@ -2704,7 +2703,7 @@ export default function SetupPage() {
                   onChange={(e) => setCategoryName(e.target.value)}
                   required
                   className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
-                  placeholder="Например, Зарплата"
+                  placeholder="e.g. Salary"
                 />
               </div>
 
@@ -2719,7 +2718,7 @@ export default function SetupPage() {
                 disabled={categorySubmitting}
                 className="mt-1 w-full rounded-lg bg-neutral-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:bg-neutral-400"
               >
-                {categorySubmitting ? 'Добавление...' : 'Добавить категорию'}
+                {categorySubmitting ? 'Adding...' : 'Add category'}
               </button>
             </form>
           </section>
@@ -2729,7 +2728,7 @@ export default function SetupPage() {
         <section className="flex flex-col gap-4 rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold text-neutral-900">Budgets</h2>
-            {budgetsLoading && <span className="text-xs text-neutral-500">Загрузка...</span>}
+            {budgetsLoading && <span className="text-xs text-neutral-500">Loading...</span>}
           </div>
 
           {budgetsError && (
@@ -2746,7 +2745,7 @@ export default function SetupPage() {
 
           {budgetDuplicateWarning.length > 0 && (
             <div className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
-              <p className="font-medium">Конфликт: категория назначена нескольким бюджетам</p>
+              <p className="font-medium">Conflict: category assigned to multiple budgets</p>
               <ul className="mt-1 list-inside list-disc">
                 {budgetDuplicateWarning.map((item, i) => (
                   <li key={i}>
@@ -2766,7 +2765,7 @@ export default function SetupPage() {
                 {editingBudgetId === budget.id ? (
                   <div className="space-y-4">
                     <div className="flex items-center justify-between">
-                      <h4 className="text-sm font-semibold text-neutral-900">Редактирование бюджета</h4>
+                      <h4 className="text-sm font-semibold text-neutral-900">Edit budget</h4>
                       <button
                         type="button"
                         onClick={cancelEditBudget}
@@ -2778,7 +2777,7 @@ export default function SetupPage() {
 
                     <div className="grid gap-3 sm:grid-cols-2">
                       <div className="space-y-1">
-                        <label className="block text-xs font-medium text-neutral-700">Название</label>
+                        <label className="block text-xs font-medium text-neutral-700">Name</label>
                         <input
                           type="text"
                           value={editBudgetName}
@@ -2787,7 +2786,7 @@ export default function SetupPage() {
                         />
                       </div>
                       <div className="space-y-1">
-                        <label className="block text-xs font-medium text-neutral-700">Лимит (EUR)</label>
+                        <label className="block text-xs font-medium text-neutral-700">Limit (EUR)</label>
                         <input
                           type="text"
                           value={editBudgetBaseLimitEur}
@@ -2797,7 +2796,7 @@ export default function SetupPage() {
                         />
                       </div>
                       <div className="space-y-1">
-                        <label className="block text-xs font-medium text-neutral-700">Дата начала</label>
+                        <label className="block text-xs font-medium text-neutral-700">Start date</label>
                         <input
                           type="date"
                           value={editBudgetStartDate}
@@ -2852,7 +2851,7 @@ export default function SetupPage() {
                                 <span className="text-sm">
                                   {cat.name}
                                   {isInOtherBudget && (
-                                    <span className="ml-1 text-neutral-500">(уже в {assignedTo})</span>
+                                    <span className="ml-1 text-neutral-500">(already in {assignedTo})</span>
                                   )}
                                 </span>
                               </label>
@@ -2873,14 +2872,14 @@ export default function SetupPage() {
                         disabled={budgetEditSubmitting}
                         className="rounded-lg bg-neutral-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:bg-neutral-400"
                       >
-                        {budgetEditSubmitting ? 'Сохранение...' : 'Сохранить'}
+                        {budgetEditSubmitting ? 'Saving...' : 'Save'}
                       </button>
                       <button
                         type="button"
                         onClick={cancelEditBudget}
                         className="rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-800 transition hover:bg-neutral-100"
                       >
-                        Отмена
+                        Cancel
                       </button>
                     </div>
                   </div>
@@ -2890,11 +2889,11 @@ export default function SetupPage() {
                       <h4 className="font-semibold text-neutral-900">{budget.name}</h4>
                       <p className="text-sm text-neutral-600">
                         {budget.base_limit_eur.toFixed(2)} € · с {budget.start_date.slice(0, 10)} ·{' '}
-                        {budget.carry_over ? 'перенос остатка' : 'без переноса'}
+                        {budget.carry_over ? 'carry over' : 'no carry over'}
                       </p>
                       {((budgetCategoriesMap.get(budget.id) || []).length > 0) && (
                         <p className="mt-1 text-xs text-neutral-500">
-                          Категории: {(budgetCategoriesMap.get(budget.id) || []).map((cid) => categories.find((c) => c.id === cid)?.name || cid).join(', ')}
+                          Categories: {(budgetCategoriesMap.get(budget.id) || []).map((cid) => categories.find((c) => c.id === cid)?.name || cid).join(', ')}
                         </p>
                       )}
                     </div>
@@ -2921,7 +2920,7 @@ export default function SetupPage() {
           </div>
 
           <form onSubmit={handleCreateBudget} className="mt-4 space-y-4 rounded-lg border border-neutral-200 p-4">
-            <h3 className="text-sm font-semibold text-neutral-900">Создать бюджет</h3>
+            <h3 className="text-sm font-semibold text-neutral-900">Create budget</h3>
 
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1">
@@ -2933,7 +2932,7 @@ export default function SetupPage() {
                   type="text"
                   value={budgetName}
                   onChange={(e) => setBudgetName(e.target.value)}
-                  placeholder="Например, Продукты"
+                  placeholder="e.g. Groceries"
                   className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
                 />
               </div>
@@ -2980,7 +2979,7 @@ export default function SetupPage() {
               <label className="block text-xs font-medium text-neutral-700">Категории расходов</label>
               <div className="max-h-40 space-y-1 overflow-auto rounded-lg border border-neutral-200 p-2">
                 {expenseCategories.length === 0 ? (
-                  <p className="text-xs text-neutral-500">Создайте категории расходов.</p>
+                  <p className="text-xs text-neutral-500">Create expense categories.</p>
                 ) : (
                   expenseCategories.map((cat) => {
                     const assignedTo = categoryToBudgetMap.get(cat.id);
@@ -3009,7 +3008,7 @@ export default function SetupPage() {
                         <span className="text-sm">
                           {cat.name}
                           {isInOtherBudget && (
-                            <span className="ml-1 text-neutral-500">(уже в {assignedTo})</span>
+                            <span className="ml-1 text-neutral-500">(already in {assignedTo})</span>
                           )}
                         </span>
                       </label>
@@ -3028,7 +3027,7 @@ export default function SetupPage() {
               disabled={budgetSubmitting}
               className="w-full rounded-lg bg-neutral-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:bg-neutral-400"
             >
-              {budgetSubmitting ? 'Создание...' : 'Создать бюджет'}
+              {budgetSubmitting ? 'Creating...' : 'Create budget'}
             </button>
           </form>
         </section>
@@ -3037,7 +3036,7 @@ export default function SetupPage() {
         <section className="flex flex-col gap-4 rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold text-neutral-900">Investments / Positions</h2>
-              {positionsLoading && <span className="text-xs text-neutral-500">Загрузка...</span>}
+              {positionsLoading && <span className="text-xs text-neutral-500">Loading...</span>}
             </div>
 
             {positionsError && (
@@ -3054,14 +3053,14 @@ export default function SetupPage() {
 
             <div className="space-y-1">
               <label className="block text-xs font-medium text-neutral-700">
-                Брокерский счёт (обязательно)
+                Broker account (required)
               </label>
               <select
                 value={selectedBrokerAccountId}
                 onChange={(e) => setSelectedBrokerAccountId(e.target.value)}
                 className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
               >
-                <option value="">Выберите брокерский счёт</option>
+                <option value="">Select broker account</option>
                 {brokerAccounts.map((acc) => (
                   <option key={acc.id} value={acc.id}>
                     {acc.name} ({(acc.currency || 'EUR') === 'EUR' ? 'EUR' : 'USD'})
@@ -3072,13 +3071,13 @@ export default function SetupPage() {
 
             {brokerAccounts.length === 0 ? (
               <p className="text-sm text-neutral-600">
-                Создайте брокерский счёт (тип broker), чтобы добавлять позиции.
+                Create a broker account (type broker) to add positions.
               </p>
             ) : selectedBrokerAccountId ? (
               <>
                 <div className="max-h-96 space-y-2 overflow-auto rounded-lg border border-neutral-200 p-3 text-sm">
                   {positions.length === 0 ? (
-                    <p className="text-neutral-600">Позиции отсутствуют.</p>
+                    <p className="text-neutral-600">No positions.</p>
                   ) : (
                     positions.map((pos) => (
                       <div
@@ -3089,7 +3088,7 @@ export default function SetupPage() {
                           <div className="space-y-3">
                             <div className="flex items-center justify-between">
                               <h4 className="text-sm font-semibold text-neutral-900">
-                                Редактирование позиции
+                                Edit position
                               </h4>
                               <button
                                 type="button"
@@ -3102,13 +3101,13 @@ export default function SetupPage() {
 
                             <div className="space-y-2">
                               <div className="text-xs text-neutral-600">
-                                Символ: {pos.instrument.display_symbol || pos.instrument.provider_symbol} (
+                                Symbol: {pos.instrument.display_symbol || pos.instrument.provider_symbol} (
                                 {pos.instrument.kind})
                               </div>
 
                               <div className="space-y-1">
                                 <label className="block text-xs font-medium text-neutral-700">
-                                  Количество
+                                  Quantity
                                 </label>
                                 <input
                                   type="text"
@@ -3117,13 +3116,13 @@ export default function SetupPage() {
                                   className="w-full rounded-lg border border-neutral-300 px-2 py-1 text-xs outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
                                 />
                                 <p className="mt-1 text-[10px] text-neutral-500">
-                                  Можно вводить выражение: 5+6-2, поддерживаются + - * / ( )
+                                  You can enter expressions: 5+6-2, supports + - * / ( )
                                 </p>
                               </div>
 
                               <div className="space-y-1">
                                 <label className="block text-xs font-medium text-neutral-700">
-                                  Комментарий
+                                  Comment
                                 </label>
                                 <input
                                   type="text"
@@ -3146,7 +3145,7 @@ export default function SetupPage() {
                                   disabled={positionEditSubmitting}
                                   className="flex-1 rounded-lg bg-neutral-900 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:bg-neutral-400"
                                 >
-                                  {positionEditSubmitting ? 'Сохранение...' : 'Сохранить'}
+                                  {positionEditSubmitting ? 'Saving...' : 'Save'}
                                 </button>
                                 <button
                                   type="button"
@@ -3154,7 +3153,7 @@ export default function SetupPage() {
                                   disabled={positionEditSubmitting}
                                   className="flex-1 rounded-lg border border-neutral-300 px-3 py-1.5 text-xs font-medium text-neutral-800 transition hover:bg-neutral-100 disabled:cursor-not-allowed"
                                 >
-                                  Отмена
+                                  Cancel
                                 </button>
                               </div>
                             </div>
@@ -3173,15 +3172,15 @@ export default function SetupPage() {
                                 </div>
                                 <div className="mt-1 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-neutral-600">
                                   <span>
-                                    Количество:{' '}
+                                    Quantity:{' '}
                                     <span className="font-medium">{pos.quantity}</span>
                                   </span>
                                   <span>
-                                    Валюта:{' '}
+                                    Currency:{' '}
                                     <span className="font-medium">{pos.quote_currency}</span>
                                   </span>
                                   <span>
-                                    Цена:{' '}
+                                    Price:{' '}
                                     <span className="font-medium">
                                       {pos.quote_currency === 'EUR' ? '€' : '$'}
                                       {pos.last_price.toFixed(2)}
@@ -3193,7 +3192,7 @@ export default function SetupPage() {
                                     )}
                                   </span>
                                   <span>
-                                    Стоимость:{' '}
+                                    Value:{' '}
                                     <span className="font-medium">
                                       {pos.quote_currency === 'EUR' ? '€' : '$'}
                                       {(pos.quantity * pos.last_price).toFixed(2)}
@@ -3207,7 +3206,7 @@ export default function SetupPage() {
                                   </span>
                                   {pos.comment && (
                                     <span className="col-span-2">
-                                      Комментарий:{' '}
+                                      Comment:{' '}
                                       <span className="font-medium">{pos.comment}</span>
                                     </span>
                                   )}
@@ -3219,14 +3218,14 @@ export default function SetupPage() {
                                   onClick={() => startEditPosition(pos)}
                                   className="text-xs text-blue-600 hover:text-blue-800"
                                 >
-                                  Редактировать
+                                  Edit
                                 </button>
                                 <button
                                   type="button"
                                   onClick={() => handleDeletePosition(pos.id)}
                                   className="text-xs text-red-600 hover:text-red-800"
                                 >
-                                  Удалить
+                                  Delete
                                 </button>
                               </div>
                             </div>
@@ -3238,14 +3237,14 @@ export default function SetupPage() {
                 </div>
 
                 <form className="mt-2 space-y-3" onSubmit={handleCreatePosition}>
-                  <h3 className="text-sm font-semibold text-neutral-900">Добавить позицию</h3>
+                  <h3 className="text-sm font-semibold text-neutral-900">Add position</h3>
 
                   <div className="space-y-1">
                     <label
                       className="block text-xs font-medium text-neutral-700"
                       htmlFor="position-kind"
                     >
-                      Тип инструмента
+                      Instrument type
                     </label>
                     <select
                       id="position-kind"
@@ -3266,7 +3265,7 @@ export default function SetupPage() {
                       className="block text-xs font-medium text-neutral-700"
                       htmlFor="position-symbol"
                     >
-                      Символ (ручной ввод)
+                      Symbol (manual entry)
                     </label>
                     <input
                       id="position-symbol"
@@ -3275,7 +3274,7 @@ export default function SetupPage() {
                       onChange={(e) => setPositionSymbol(e.target.value)}
                       required
                       className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
-                      placeholder="Например, AAPL"
+                      placeholder="e.g. AAPL"
                     />
                   </div>
 
@@ -3284,7 +3283,7 @@ export default function SetupPage() {
                       className="block text-xs font-medium text-neutral-700"
                       htmlFor="position-comment"
                     >
-                      Комментарий (необязательно)
+                      Comment (optional)
                     </label>
                     <input
                       id="position-comment"
@@ -3297,7 +3296,7 @@ export default function SetupPage() {
 
                   <div className="space-y-1">
                     <span className="block text-xs font-medium text-neutral-700">
-                      Режим ввода
+                      Input mode
                     </span>
                     <div className="inline-flex rounded-lg border border-neutral-300 bg-neutral-50 p-0.5 text-xs">
                       <button
@@ -3309,7 +3308,7 @@ export default function SetupPage() {
                             : 'text-neutral-600'
                         }`}
                       >
-                        Количество
+                        Quantity
                       </button>
                       <button
                         type="button"
@@ -3320,7 +3319,7 @@ export default function SetupPage() {
                             : 'text-neutral-600'
                         }`}
                       >
-                        Сумма
+                        Amount
                       </button>
                     </div>
                   </div>
@@ -3331,7 +3330,7 @@ export default function SetupPage() {
                         className="block text-xs font-medium text-neutral-700"
                         htmlFor="position-quantity"
                       >
-                        Количество
+                        Quantity
                       </label>
                       <input
                         id="position-quantity"
@@ -3341,7 +3340,7 @@ export default function SetupPage() {
                         className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
                       />
                       <p className="mt-1 text-xs text-neutral-500">
-                        Можно вводить выражение: 5+6-2, поддерживаются + - * / ( )
+                        You can enter expressions: 5+6-2, supports + - * / ( )
                       </p>
                     </div>
                   ) : (
@@ -3350,7 +3349,7 @@ export default function SetupPage() {
                         className="block text-xs font-medium text-neutral-700"
                         htmlFor="position-amount"
                       >
-                        Сумма в валюте брокерского счёта
+                        Amount in broker account currency
                       </label>
                       <input
                         id="position-amount"
@@ -3360,10 +3359,10 @@ export default function SetupPage() {
                         value={positionAmount}
                         onChange={(e) => setPositionAmount(e.target.value)}
                         className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
-                        placeholder="Например, 1500"
+                        placeholder="e.g. 1500"
                       />
                       <p className="text-[11px] text-neutral-500">
-                        Количество будет рассчитано автоматически по текущей цене инструмента.
+                        Quantity будет рассчитано автоматически по текущей цене инструмента.
                       </p>
                     </div>
                   )}
@@ -3379,7 +3378,7 @@ export default function SetupPage() {
                     disabled={positionSubmitting}
                     className="mt-1 w-full rounded-lg bg-neutral-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:bg-neutral-400"
                   >
-                    {positionSubmitting ? 'Создание...' : 'Создать позицию'}
+                    {positionSubmitting ? 'Creating...' : 'Create position'}
                   </button>
                 </form>
               </>
@@ -3388,13 +3387,13 @@ export default function SetupPage() {
 
         {/* Danger Zone */}
         <section className="rounded-2xl border-2 border-red-200 bg-red-50 p-6 shadow-sm">
-          <h2 className="mb-4 text-lg font-semibold text-red-900">Опасная зона</h2>
+          <h2 className="mb-4 text-lg font-semibold text-red-900">Danger zone</h2>
           <div className="space-y-3">
             <div>
               {showPeriodDeletePanel ? (
                 <>
                   <p className="mb-3 text-sm text-red-800">
-                    Удалит доходы/расходы/переводы в выбранном диапазоне дат. Счета и категории сохранятся.
+                    Will delete income/expense/transfers in the selected date range. Accounts and categories will be preserved.
                   </p>
                   {clearPeriodSuccess && (
                     <div className="mb-2 rounded-lg bg-green-50 px-3 py-2 text-sm text-green-700">
@@ -3409,7 +3408,7 @@ export default function SetupPage() {
                   <div className="mb-3 grid grid-cols-2 gap-3">
                     <div className="space-y-1">
                       <label className="block text-xs font-medium text-red-900" htmlFor="date-from">
-                        Дата начала
+                        Start date
                       </label>
                       <input
                         id="date-from"
@@ -3422,7 +3421,7 @@ export default function SetupPage() {
                     </div>
                     <div className="space-y-1">
                       <label className="block text-xs font-medium text-red-900" htmlFor="date-to">
-                        Дата окончания
+                        End date
                       </label>
                       <input
                         id="date-to"
@@ -3441,14 +3440,14 @@ export default function SetupPage() {
                       disabled={clearingPeriod}
                       className="rounded-lg border-2 border-red-600 bg-red-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-red-700 hover:border-red-700 disabled:cursor-not-allowed disabled:bg-red-400 disabled:border-red-400"
                     >
-                      {clearingPeriod ? 'Удаление...' : 'Очистить за период'}
+                      {clearingPeriod ? 'Deleting...' : 'Delete transactions for period'}
                     </button>
                     <button
                       type="button"
                       onClick={() => setShowPeriodDeletePanel(false)}
                       className="rounded-lg border-2 border-red-300 bg-white px-4 py-2 text-sm font-medium text-red-700 transition hover:bg-red-50"
                     >
-                      Скрыть
+                      Hide
                     </button>
                   </div>
                 </>
@@ -3458,7 +3457,7 @@ export default function SetupPage() {
                   onClick={() => setShowPeriodDeletePanel(true)}
                   className="rounded-lg border-2 border-red-300 bg-white px-4 py-2 text-sm font-medium text-red-700 transition hover:bg-red-50"
                 >
-                  Удаление операций за период
+                  Delete transactions for period
                 </button>
               )}
             </div>

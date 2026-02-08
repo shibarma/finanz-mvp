@@ -749,7 +749,7 @@ export default function StatsPage() {
       const category = categoryId === 'no-category' ? null : categories.find((c) => c.id === categoryId);
       return {
         categoryId,
-        categoryName: category?.name || 'Без категории',
+        categoryName: category?.name || 'No category',
         amount,
       };
     });
@@ -764,7 +764,7 @@ export default function StatsPage() {
     if (othersSum > 0) {
       top10.push({
         categoryId: 'others',
-        categoryName: 'Другое',
+        categoryName: 'Other',
         amount: othersSum,
       });
     }
@@ -1061,7 +1061,7 @@ export default function StatsPage() {
   if (!sessionChecked) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-neutral-50 text-neutral-700">
-        Проверяем сессию...
+        Checking session...
       </div>
     );
   }
@@ -1071,8 +1071,8 @@ export default function StatsPage() {
       <div className="mx-auto flex max-w-6xl flex-col gap-6">
         <header className="flex items-center justify-between rounded-2xl border border-neutral-200 bg-white px-6 py-4 shadow-sm">
           <div>
-            <h1 className="text-xl font-semibold text-neutral-900">Статистика</h1>
-            <p className="text-sm text-neutral-600">Анализ доходов и расходов</p>
+            <h1 className="text-xl font-semibold text-neutral-900">Statistics</h1>
+            <p className="text-sm text-neutral-600">Income and expense analysis</p>
           </div>
           <div className="flex items-center gap-3">
             <button
@@ -1086,13 +1086,13 @@ export default function StatsPage() {
               onClick={() => router.push('/app')}
               className="rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-800 transition hover:bg-neutral-100"
             >
-              Главная
+              Dashboard
             </button>
             <button
               onClick={() => router.push('/setup')}
               className="rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-800 transition hover:bg-neutral-100"
             >
-              Настройки
+              Settings
             </button>
             <button
               onClick={handleLogout}
@@ -1109,7 +1109,7 @@ export default function StatsPage() {
 
         {refreshLoading && (
           <div className="rounded-lg bg-neutral-100 px-4 py-3 text-sm text-neutral-700">
-            Обновляем котировки и FX...
+            Refreshing quotes and FX...
           </div>
         )}
 
@@ -1125,14 +1125,14 @@ export default function StatsPage() {
 
         {/* Период */}
         <section className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">
-          <h2 className="mb-4 text-lg font-semibold text-neutral-900">Период</h2>
+          <h2 className="mb-4 text-lg font-semibold text-neutral-900">Period</h2>
           <div className="flex flex-wrap items-end gap-4">
             <div className="flex gap-2">
               <button
                 onClick={() => setPresetPeriod('7d')}
                 className="rounded-lg border border-neutral-300 px-3 py-2 text-xs font-medium text-neutral-800 transition hover:bg-neutral-100"
               >
-                7 дней
+                7 days
               </button>
               <button
                 onClick={() => setPresetPeriod('30d')}
@@ -1149,7 +1149,7 @@ export default function StatsPage() {
             </div>
             <div className="flex gap-3">
               <div>
-                <label className="block text-xs font-medium text-neutral-700">От</label>
+                <label className="block text-xs font-medium text-neutral-700">From</label>
                 <input
                   type="date"
                   value={dateFrom}
@@ -1164,7 +1164,7 @@ export default function StatsPage() {
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium text-neutral-700">До</label>
+                <label className="block text-xs font-medium text-neutral-700">To</label>
                 <input
                   type="date"
                   value={dateTo}
@@ -1184,7 +1184,7 @@ export default function StatsPage() {
 
         {/* Итоги за период */}
         <section className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">
-          <h2 className="mb-4 text-lg font-semibold text-neutral-900">Итоги за период</h2>
+          <h2 className="mb-4 text-lg font-semibold text-neutral-900">Period summary</h2>
           <div className="grid gap-4 md:grid-cols-3">
             <div>
               <p className="text-xs text-neutral-600">Доходы</p>
@@ -1193,7 +1193,7 @@ export default function StatsPage() {
               </p>
             </div>
             <div>
-              <p className="text-xs text-neutral-600">Расходы</p>
+              <p className="text-xs text-neutral-600">Expenses</p>
               <p className="text-2xl font-semibold text-red-700">
                 {formatMoney(periodSummary.expense)}
               </p>
@@ -1246,7 +1246,7 @@ export default function StatsPage() {
         <section className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">
           <h2 className="mb-4 text-lg font-semibold text-neutral-900">Budgets</h2>
 
-          {budgetsLoading && <p className="text-sm text-neutral-600">Загрузка бюджетов...</p>}
+          {budgetsLoading && <p className="text-sm text-neutral-600">Loading budgets...</p>}
           {budgetsError && (
             <div className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{budgetsError}</div>
           )}
@@ -1262,7 +1262,7 @@ export default function StatsPage() {
           )}
 
           {!budgetsLoading && !budgetsError && budgetAnalytics.items.length === 0 && budgets.length === 0 && (
-            <p className="text-sm text-neutral-600">Нет бюджетов. Создайте их в Настройках.</p>
+            <p className="text-sm text-neutral-600">No budgets. Create them in Settings.</p>
           )}
 
           {!budgetsLoading && budgetAnalytics.items.length > 0 && (
@@ -1309,21 +1309,21 @@ export default function StatsPage() {
           )}
 
           {!budgetsLoading && !budgetsError && budgetAnalytics.items.length === 0 && budgets.length > 0 && (
-            <p className="text-sm text-neutral-600">Бюджеты не имеют категорий или период не пересекается.</p>
+            <p className="text-sm text-neutral-600">Budgets have no categories or period does not overlap.</p>
           )}
         </section>
 
         {/* Суммарные графики */}
         <section className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">
-          <h2 className="mb-4 text-lg font-semibold text-neutral-900">Суммарные графики</h2>
+          <h2 className="mb-4 text-lg font-semibold text-neutral-900">Aggregate charts</h2>
 
           {accounts.length === 0 ? (
-            <p className="text-sm text-neutral-600">Нет счетов для отображения.</p>
+            <p className="text-sm text-neutral-600">No accounts to display.</p>
           ) : (
             <div className="grid gap-6 md:grid-cols-2">
               {/* Все счета */}
               <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-4">
-                <h3 className="mb-3 text-sm font-semibold text-neutral-900">Все счета</h3>
+                <h3 className="mb-3 text-sm font-semibold text-neutral-900">All accounts</h3>
                 {aggregatedCharts.all.length > 0 ? (
                   <ResponsiveContainer width="100%" height={200}>
                     <LineChart data={aggregatedCharts.all}>
@@ -1348,7 +1348,7 @@ export default function StatsPage() {
                     </LineChart>
                   </ResponsiveContainer>
                 ) : (
-                  <p className="text-xs text-neutral-600">Нет данных</p>
+                  <p className="text-xs text-neutral-600">No data</p>
                 )}
               </div>
 
@@ -1379,7 +1379,7 @@ export default function StatsPage() {
                     </LineChart>
                   </ResponsiveContainer>
                 ) : (
-                  <p className="text-xs text-neutral-600">Нет данных</p>
+                  <p className="text-xs text-neutral-600">No data</p>
                 )}
               </div>
 
@@ -1410,7 +1410,7 @@ export default function StatsPage() {
                     </LineChart>
                   </ResponsiveContainer>
                 ) : (
-                  <p className="text-xs text-neutral-600">Нет данных</p>
+                  <p className="text-xs text-neutral-600">No data</p>
                 )}
               </div>
 
@@ -1441,7 +1441,7 @@ export default function StatsPage() {
                     </LineChart>
                   </ResponsiveContainer>
                 ) : (
-                  <p className="text-xs text-neutral-600">Нет данных</p>
+                  <p className="text-xs text-neutral-600">No data</p>
                 )}
               </div>
             </div>
@@ -1451,7 +1451,7 @@ export default function StatsPage() {
         {/* График баланса по счетам */}
         <section className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">
           <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-neutral-900">Баланс по счетам</h2>
+            <h2 className="text-lg font-semibold text-neutral-900">Balance by account</h2>
             {accounts.length > 0 && (
               <select
                 value={selectedAccountId}
@@ -1495,7 +1495,7 @@ export default function StatsPage() {
                   <Tooltip
                     formatter={(value, name) => {
                       if (value == null || !Number.isFinite(Number(value))) return '—';
-                      return name === 'Баланс (USD)' ? formatMoneyUSD(Number(value)) : formatMoney(Number(value));
+                      return name === 'Balance (USD)' ? formatMoneyUSD(Number(value)) : formatMoney(Number(value));
                     }}
                     labelStyle={{ color: '#171717' }}
                   />
@@ -1506,7 +1506,7 @@ export default function StatsPage() {
                     dataKey="balance_usd"
                     stroke="#2563eb"
                     strokeWidth={2}
-                    name="Баланс (USD)"
+                    name="Balance (USD)"
                     dot={{ r: 3 }}
                     connectNulls={false}
                   />
@@ -1516,7 +1516,7 @@ export default function StatsPage() {
                     dataKey="balance_eur"
                     stroke="#16a34a"
                     strokeWidth={2}
-                    name="Баланс (EUR)"
+                    name="Balance (EUR)"
                     dot={{ r: 3 }}
                     connectNulls={false}
                   />
@@ -1541,20 +1541,20 @@ export default function StatsPage() {
                     dataKey="balance"
                     stroke="#171717"
                     strokeWidth={2}
-                    name="Баланс"
+                    name="Balance"
                     dot={{ r: 3 }}
                   />
                 </LineChart>
               </ResponsiveContainer>
             )
           ) : (
-            <p className="text-sm text-neutral-600">Нет данных для отображения.</p>
+            <p className="text-sm text-neutral-600">No data для отображения.</p>
           )}
         </section>
 
         {/* Расходы по категориям */}
         <section className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">
-          <h2 className="mb-4 text-lg font-semibold text-neutral-900">Расходы по категориям</h2>
+          <h2 className="mb-4 text-lg font-semibold text-neutral-900">Expenses by category</h2>
 
           {expensesByCategory.length > 0 ? (
             <>
@@ -1574,7 +1574,7 @@ export default function StatsPage() {
                     labelStyle={{ color: '#171717' }}
                   />
                   <Legend />
-                  <Bar dataKey="amount" fill="#ef4444" name="Расходы" />
+                  <Bar dataKey="amount" fill="#ef4444" name="Expenses" />
                 </BarChart>
               </ResponsiveContainer>
 
@@ -1583,9 +1583,9 @@ export default function StatsPage() {
                   <thead>
                     <tr className="border-b border-neutral-200">
                       <th className="px-4 py-2 text-left font-semibold text-neutral-900">
-                        Категория
+                        Category
                       </th>
-                      <th className="px-4 py-2 text-right font-semibold text-neutral-900">Сумма</th>
+                      <th className="px-4 py-2 text-right font-semibold text-neutral-900">Amount</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1602,7 +1602,7 @@ export default function StatsPage() {
               </div>
             </>
           ) : (
-            <p className="text-sm text-neutral-600">Нет расходов за выбранный период.</p>
+            <p className="text-sm text-neutral-600">No expenses for the selected period.</p>
           )}
         </section>
 
@@ -1615,7 +1615,7 @@ export default function StatsPage() {
             </div>
           )}
           {investmentLoading && (
-            <p className="mb-4 text-sm text-neutral-600">Загрузка данных инвестиций...</p>
+            <p className="mb-4 text-sm text-neutral-600">Loading investment data...</p>
           )}
           <div className="mb-4">
             <label className="block text-xs font-medium text-neutral-700">Broker</label>
@@ -1750,11 +1750,11 @@ export default function StatsPage() {
             </div>
           ) : selectedBrokerId === '' ? (
             <div className="flex min-h-[200px] items-center justify-center rounded-lg border border-neutral-200 bg-neutral-50 p-8">
-              <p className="text-sm text-neutral-500">Нет данных за выбранный период</p>
+              <p className="text-sm text-neutral-500">No data за выбранный период</p>
             </div>
           ) : (
             <div className="flex min-h-[200px] items-center justify-center rounded-lg border border-neutral-200 bg-neutral-50 p-8">
-              <p className="text-sm text-neutral-500">Нет данных за выбранный период</p>
+              <p className="text-sm text-neutral-500">No data за выбранный период</p>
             </div>
           )}
         </section>
