@@ -1067,36 +1067,36 @@ export default function StatsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-neutral-50 px-4 py-8">
+    <div className="min-h-screen bg-neutral-50 px-4 py-8 md:px-6">
       <div className="mx-auto flex max-w-6xl flex-col gap-6">
-        <header className="flex items-center justify-between rounded-2xl border border-neutral-200 bg-white px-6 py-4 shadow-sm">
+        <header className="flex flex-col gap-4 rounded-2xl border border-neutral-200 bg-white px-4 py-4 shadow-sm md:flex-row md:items-center md:justify-between md:px-6">
           <div>
             <h1 className="text-xl font-semibold text-neutral-900">Statistics</h1>
             <p className="text-sm text-neutral-600">Income and expense analysis</p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap gap-2 md:gap-3">
             <button
               onClick={handleManualRefresh}
               disabled={refreshLoading}
-              className="rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-800 transition hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-60"
+              className="w-full rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-800 transition hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-60 md:w-auto"
             >
               🔄 Refresh prices
             </button>
             <button
               onClick={() => router.push('/app')}
-              className="rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-800 transition hover:bg-neutral-100"
+              className="w-full rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-800 transition hover:bg-neutral-100 md:w-auto"
             >
               Dashboard
             </button>
             <button
               onClick={() => router.push('/setup')}
-              className="rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-800 transition hover:bg-neutral-100"
+              className="w-full rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-800 transition hover:bg-neutral-100 md:w-auto"
             >
               Settings
             </button>
             <button
               onClick={handleLogout}
-              className="rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-800 transition hover:bg-neutral-100"
+              className="w-full rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-800 transition hover:bg-neutral-100 md:w-auto"
             >
               Logout
             </button>
@@ -1123,11 +1123,11 @@ export default function StatsPage() {
           </div>
         )}
 
-        {/* Период */}
-        <section className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">
+        {/* Period */}
+        <section className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm md:p-6">
           <h2 className="mb-4 text-lg font-semibold text-neutral-900">Period</h2>
-          <div className="flex flex-wrap items-end gap-4">
-            <div className="flex gap-2">
+          <div className="flex flex-col gap-4 md:flex-row md:flex-wrap md:items-end">
+            <div className="flex flex-wrap gap-2">
               <button
                 onClick={() => setPresetPeriod('7d')}
                 className="rounded-lg border border-neutral-300 px-3 py-2 text-xs font-medium text-neutral-800 transition hover:bg-neutral-100"
@@ -1147,8 +1147,8 @@ export default function StatsPage() {
                 Этот месяц
               </button>
             </div>
-            <div className="flex gap-3">
-              <div>
+            <div className="flex flex-col gap-2 sm:flex-row sm:gap-3">
+              <div className="min-w-0 flex-1">
                 <label className="block text-xs font-medium text-neutral-700">From</label>
                 <input
                   type="date"
@@ -1160,10 +1160,10 @@ export default function StatsPage() {
                       setDateFrom(e.target.value);
                     }
                   }}
-                  className="mt-1 rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                  className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
                 />
               </div>
-              <div>
+              <div className="min-w-0 flex-1">
                 <label className="block text-xs font-medium text-neutral-700">To</label>
                 <input
                   type="date"
@@ -1175,17 +1175,17 @@ export default function StatsPage() {
                       setDateTo(e.target.value);
                     }
                   }}
-                  className="mt-1 rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                  className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
                 />
               </div>
             </div>
           </div>
         </section>
 
-        {/* Итоги за период */}
-        <section className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">
+        {/* Period summary */}
+        <section className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm md:p-6">
           <h2 className="mb-4 text-lg font-semibold text-neutral-900">Period summary</h2>
-          <div className="grid gap-4 md:grid-cols-3">
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-4">
             <div>
               <p className="text-xs text-neutral-600">Доходы</p>
               <p className="text-2xl font-semibold text-emerald-700">
@@ -1211,12 +1211,12 @@ export default function StatsPage() {
           </div>
         </section>
 
-        {/* Итоги за период — инвестиционные сделки (cashflow) */}
-        <section className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">
+        {/* Period summary — investment trades (cashflow) */}
+        <section className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm md:p-6">
           <h2 className="mb-4 text-lg font-semibold text-neutral-900">
-            Итоги за период — инвестиционные сделки (cashflow)
+            Period summary — investment trades (cashflow)
           </h2>
-          <div className="grid gap-4 md:grid-cols-3">
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-4">
             <div>
               <p className="text-xs text-neutral-600">Total Buy</p>
               <p className="text-2xl font-semibold text-red-700">
@@ -1243,7 +1243,7 @@ export default function StatsPage() {
         </section>
 
         {/* Budgets */}
-        <section className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">
+        <section className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm md:p-6">
           <h2 className="mb-4 text-lg font-semibold text-neutral-900">Budgets</h2>
 
           {budgetsLoading && <p className="text-sm text-neutral-600">Loading budgets...</p>}
@@ -1276,7 +1276,7 @@ export default function StatsPage() {
                 const pct = item.limit > 0 ? Math.min(100, (item.spent / item.limit) * 100) : 0;
                 return (
                   <div key={item.budget.id} className="rounded-lg border border-neutral-200 p-4">
-                    <div className="mb-2 flex items-center justify-between">
+                    <div className="mb-2 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                       <h3 className="font-semibold text-neutral-900">{item.budget.name}</h3>
                       <span className="text-xs text-neutral-500">
                         Budget window: {item.windowStart} – {item.windowEnd}
@@ -1313,8 +1313,8 @@ export default function StatsPage() {
           )}
         </section>
 
-        {/* Суммарные графики */}
-        <section className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">
+        {/* Aggregate charts */}
+        <section className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm md:p-6">
           <h2 className="mb-4 text-lg font-semibold text-neutral-900">Aggregate charts</h2>
 
           {accounts.length === 0 ? (
@@ -1448,15 +1448,15 @@ export default function StatsPage() {
           )}
         </section>
 
-        {/* График баланса по счетам */}
-        <section className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">
-          <div className="mb-4 flex items-center justify-between">
+        {/* Balance by account */}
+        <section className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm md:p-6">
+          <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
             <h2 className="text-lg font-semibold text-neutral-900">Balance by account</h2>
             {accounts.length > 0 && (
               <select
                 value={selectedAccountId}
                 onChange={(e) => setSelectedAccountId(e.target.value)}
-                className="rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                className="w-full min-w-0 rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200 md:w-auto md:min-w-[180px]"
               >
                 {accounts.map((acc) => (
                   <option key={acc.id} value={acc.id}>
@@ -1552,8 +1552,8 @@ export default function StatsPage() {
           )}
         </section>
 
-        {/* Расходы по категориям */}
-        <section className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">
+        {/* Expenses by category */}
+        <section className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm md:p-6">
           <h2 className="mb-4 text-lg font-semibold text-neutral-900">Expenses by category</h2>
 
           {expensesByCategory.length > 0 ? (
@@ -1607,7 +1607,7 @@ export default function StatsPage() {
         </section>
 
         {/* Investments */}
-        <section className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">
+        <section className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm md:p-6">
           <h2 className="mb-4 text-lg font-semibold text-neutral-900">Investments</h2>
           {investmentError && (
             <div className="mb-4 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800">

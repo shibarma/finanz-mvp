@@ -1845,36 +1845,36 @@ export default function SetupPage() {
   }
 
   return (
-    <div className="min-h-screen bg-neutral-50 px-4 py-8">
+    <div className="min-h-screen bg-neutral-50 px-4 py-8 md:px-6">
       <div className="mx-auto flex max-w-5xl flex-col gap-6">
-        <header className="flex items-center justify-between rounded-2xl border border-neutral-200 bg-white px-6 py-4 shadow-sm">
+        <header className="flex flex-col gap-4 rounded-2xl border border-neutral-200 bg-white px-4 py-4 shadow-sm md:flex-row md:items-center md:justify-between md:px-6">
           <div>
             <h1 className="text-xl font-semibold text-neutral-900">Settings</h1>
             <p className="text-sm text-neutral-600">Manage accounts and categories</p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap gap-2 md:gap-3">
             <button
               onClick={handleManualRefresh}
               disabled={refreshLoading}
-              className="rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-800 transition hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-60"
+              className="w-full rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-800 transition hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-60 md:w-auto"
             >
               🔄 Refresh prices
             </button>
             <button
               onClick={() => router.push('/app')}
-              className="rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-800 transition hover:bg-neutral-100"
+              className="w-full rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-800 transition hover:bg-neutral-100 md:w-auto"
             >
               Dashboard
             </button>
             <button
               onClick={() => router.push('/stats')}
-              className="rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-800 transition hover:bg-neutral-100"
+              className="w-full rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-800 transition hover:bg-neutral-100 md:w-auto"
             >
               Statistics
             </button>
             <button
               onClick={handleLogout}
-              className="rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-800 transition hover:bg-neutral-100"
+              className="w-full rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-800 transition hover:bg-neutral-100 md:w-auto"
             >
               Logout
             </button>
@@ -1897,10 +1897,10 @@ export default function SetupPage() {
           </div>
         )}
 
-        <main className="grid gap-6 md:grid-cols-2">
+        <main className="flex flex-col gap-6">
           {/* Accounts block */}
-          <section className="flex flex-col gap-4 rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">
-            <div className="flex items-center justify-between">
+          <section className="flex flex-col gap-4 rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm md:p-6">
+            <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
               <h2 className="text-lg font-semibold text-neutral-900">Accounts</h2>
               {accountsLoading && (
                 <span className="text-xs text-neutral-500">Loading...</span>
@@ -2430,8 +2430,8 @@ export default function SetupPage() {
           </section>
 
           {/* Categories block */}
-          <section className="flex flex-col gap-4 rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">
-            <div className="flex items-center justify-between">
+          <section className="flex flex-col gap-4 rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm md:p-6">
+            <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
               <h2 className="text-lg font-semibold text-neutral-900">Categories</h2>
               {categoriesLoading && (
                 <span className="text-xs text-neutral-500">Loading...</span>
@@ -2725,8 +2725,8 @@ export default function SetupPage() {
         </main>
 
         {/* Budgets block */}
-        <section className="flex flex-col gap-4 rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">
-          <div className="flex items-center justify-between">
+        <section className="flex flex-col gap-4 rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm md:p-6">
+          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
             <h2 className="text-lg font-semibold text-neutral-900">Budgets</h2>
             {budgetsLoading && <span className="text-xs text-neutral-500">Loading...</span>}
           </div>
@@ -2884,7 +2884,7 @@ export default function SetupPage() {
                     </div>
                   </div>
                 ) : (
-                  <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="flex flex-col gap-3 md:flex-row md:flex-wrap md:items-start md:justify-between">
                     <div>
                       <h4 className="font-semibold text-neutral-900">{budget.name}</h4>
                       <p className="text-sm text-neutral-600">
@@ -3033,8 +3033,8 @@ export default function SetupPage() {
         </section>
 
         {/* Investments/Positions block */}
-        <section className="flex flex-col gap-4 rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">
-            <div className="flex items-center justify-between">
+        <section className="flex flex-col gap-4 rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm md:p-6">
+            <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
               <h2 className="text-lg font-semibold text-neutral-900">Investments / Positions</h2>
               {positionsLoading && <span className="text-xs text-neutral-500">Loading...</span>}
             </div>
@@ -3386,7 +3386,7 @@ export default function SetupPage() {
           </section>
 
         {/* Danger Zone */}
-        <section className="rounded-2xl border-2 border-red-200 bg-red-50 p-6 shadow-sm">
+        <section className="rounded-2xl border-2 border-red-200 bg-red-50 p-4 shadow-sm md:p-6">
           <h2 className="mb-4 text-lg font-semibold text-red-900">Danger zone</h2>
           <div className="space-y-3">
             <div>
@@ -3433,19 +3433,19 @@ export default function SetupPage() {
                       />
                     </div>
                   </div>
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-col gap-2 md:flex-row md:flex-wrap md:gap-2">
                     <button
                       type="button"
                       onClick={handleClearPeriod}
                       disabled={clearingPeriod}
-                      className="rounded-lg border-2 border-red-600 bg-red-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-red-700 hover:border-red-700 disabled:cursor-not-allowed disabled:bg-red-400 disabled:border-red-400"
+                      className="w-full rounded-lg border-2 border-red-600 bg-red-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-red-700 hover:border-red-700 disabled:cursor-not-allowed disabled:bg-red-400 disabled:border-red-400 md:w-auto"
                     >
                       {clearingPeriod ? 'Deleting...' : 'Delete transactions for period'}
                     </button>
                     <button
                       type="button"
                       onClick={() => setShowPeriodDeletePanel(false)}
-                      className="rounded-lg border-2 border-red-300 bg-white px-4 py-2 text-sm font-medium text-red-700 transition hover:bg-red-50"
+                      className="w-full rounded-lg border-2 border-red-300 bg-white px-4 py-2 text-sm font-medium text-red-700 transition hover:bg-red-50 md:w-auto"
                     >
                       Hide
                     </button>
