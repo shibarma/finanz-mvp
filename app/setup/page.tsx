@@ -86,7 +86,7 @@ function parseBaseLimitEur(input: string): { ok: true; value: number } | { ok: f
   return { ok: true, value: rounded };
 }
 
-// Простой helper, чтобы переиспользовать в будущем
+// Simple helper for future reuse
 async function requireSessionOrRedirect(router: ReturnType<typeof useRouter>) {
   const session = await getSession();
   if (!session) {
@@ -111,7 +111,7 @@ export default function SetupPage() {
   const [categoriesLoading, setCategoriesLoading] = useState(false);
   const [categoriesError, setCategoriesError] = useState<string | null>(null);
 
-  // Редактирование категорий
+  // Category editing
   const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
   const [editCategoryName, setEditCategoryName] = useState('');
   const [categoryEditError, setCategoryEditError] = useState<string | null>(null);
@@ -120,7 +120,7 @@ export default function SetupPage() {
   const [movingCategoryId, setMovingCategoryId] = useState<string | null>(null);
   const [moveCategoryError, setMoveCategoryError] = useState<string | null>(null);
 
-  // Форма аккаунтов
+  // Accounts form
   const [accountName, setAccountName] = useState('');
   const [accountKind, setAccountKind] = useState<AccountKind>('debit');
   const [accountCurrency, setAccountCurrency] = useState<AccountCurrency>('EUR');
@@ -147,7 +147,7 @@ export default function SetupPage() {
     errors: number;
   } | null>(null);
 
-  // Редактирование счета
+  // Account editing
   const [editingAccountId, setEditingAccountId] = useState<string | null>(null);
   const [editAccountName, setEditAccountName] = useState('');
   const [editAccountCurrency, setEditAccountCurrency] = useState<AccountCurrency>('EUR');
@@ -162,7 +162,7 @@ export default function SetupPage() {
   const [defaultUpdating, setDefaultUpdating] = useState<Set<string>>(new Set());
   const [defaultError, setDefaultError] = useState<string | null>(null);
 
-  // Очистка операций за период
+  // Clear operations for period
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [showPeriodDeletePanel, setShowPeriodDeletePanel] = useState(false);
@@ -170,7 +170,7 @@ export default function SetupPage() {
   const [clearPeriodError, setClearPeriodError] = useState<string | null>(null);
   const [clearPeriodSuccess, setClearPeriodSuccess] = useState<string | null>(null);
 
-  // Форма категорий
+  // Categories form
   const [categoryKind, setCategoryKind] = useState<CategoryKind>('income');
   const [categoryName, setCategoryName] = useState('');
   const [categorySubmitting, setCategorySubmitting] = useState(false);
@@ -226,7 +226,7 @@ export default function SetupPage() {
     [accounts],
   );
 
-  // Map для быстрого поиска имени счета по ID
+  // Map for quick account name lookup by ID
   const accountNameMap = useMemo(() => {
     const map = new Map<string, string>();
     accounts.forEach((acc) => {
@@ -453,19 +453,19 @@ export default function SetupPage() {
       return;
     }
 
-    // Сортируем на клиенте: kind, sort_order asc, created_at asc
+    // Sort on client: kind, sort_order asc, created_at asc
     const sorted = (data || []).sort((a, b) => {
-      // Сначала по kind
+      // First by kind
       if (a.kind !== b.kind) {
         return a.kind.localeCompare(b.kind);
       }
-      // Затем по sort_order (nulls last)
+      // Then by sort_order (nulls last)
       const aOrder = a.sort_order ?? Number.MAX_SAFE_INTEGER;
       const bOrder = b.sort_order ?? Number.MAX_SAFE_INTEGER;
       if (aOrder !== bOrder) {
         return aOrder - bOrder;
       }
-      // Наконец по created_at
+      // Finally by created_at
       return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
     });
 
@@ -548,7 +548,7 @@ export default function SetupPage() {
 
     try {
       if (value) {
-        // Сначала сбросить флаг у всех счетов пользователя
+        // First reset flag for all user accounts
         const { error: resetError } = await supabase
           .from('accounts')
           .update({ [fieldName]: false })
@@ -564,7 +564,7 @@ export default function SetupPage() {
           return;
         }
 
-        // Затем установить true только выбранному счёту
+        // Then set true only for the selected account
         const { error: setError } = await supabase
           .from('accounts')
           .update({ [fieldName]: true })
@@ -580,7 +580,7 @@ export default function SetupPage() {
           return;
         }
       } else {
-        // Просто установить false для выбранного счёта
+        // Simply set false for the selected account
         const { error: setError } = await supabase
           .from('accounts')
           .update({ [fieldName]: false })
@@ -597,7 +597,7 @@ export default function SetupPage() {
         }
       }
 
-      // Обновить локальное состояние
+      // Update local state
       await loadAccounts();
     } finally {
       setDefaultUpdating((prev) => {
@@ -641,7 +641,7 @@ export default function SetupPage() {
     let debitAnchorId: string | null = null;
 
     if (accountKind === 'credit') {
-      // Для credit счетов не используем warning_threshold
+      // For credit accounts don't use warning_threshold
       if (debitAccounts.length === 0) {
         setAccountFormError('Create a debit account first to link the credit card.');
         return;
@@ -673,7 +673,7 @@ export default function SetupPage() {
       }
       debitAnchorId = debitAnchorAccountId;
     } else {
-      // Для debit, cash и broker используем warning_threshold
+      // For debit, cash and broker use warning_threshold
       const warningThresholdValue = warningThreshold || '0';
       warningThresholdNum = Number(warningThresholdValue);
       if (Number.isNaN(warningThresholdNum)) {
@@ -708,7 +708,7 @@ export default function SetupPage() {
       return;
     }
 
-    // Если нужно установить default флаги, делаем это после создания
+    // If we need to set default flags, do it after creation
     if (newAccount) {
       if (isDefaultIncome) {
         await setDefault('income', newAccount.id, true);
@@ -720,7 +720,7 @@ export default function SetupPage() {
 
     setAccountSubmitting(false);
 
-    // очистка формы
+    // clear form
     setAccountName('');
     setAccountCurrency('EUR');
     setStartingBalance('0');
@@ -876,7 +876,7 @@ export default function SetupPage() {
     setDeleteError(null);
     setEditError(null);
 
-    // Проверка 1: есть ли транзакции
+    // Check 1: are there transactions
     const { count: transactionsCount } = await supabase
       .from('transactions')
       .select('*', { count: 'exact', head: true })
@@ -889,7 +889,7 @@ export default function SetupPage() {
       return;
     }
 
-    // Проверка 2: есть ли transfers
+    // Check 2: are there transfers
     const { count: transfersCount } = await supabase
       .from('transfers')
       .select('*', { count: 'exact', head: true })
@@ -902,7 +902,7 @@ export default function SetupPage() {
       return;
     }
 
-    // Проверка 3: для broker счетов - есть ли investment positions
+    // Check 3: for broker accounts - are there investment positions
     const account = accounts.find((a) => a.id === accountId);
     if (account && account.kind === 'broker') {
       const { count: positionsCount } = await supabase
@@ -918,7 +918,7 @@ export default function SetupPage() {
       }
     }
 
-    // Проверка 4: используется ли как debit_anchor_account_id
+    // Check 4: is it used as debit_anchor_account_id
     if (account && account.kind === 'debit') {
       const { count: linkedCreditCount } = await supabase
         .from('accounts')
@@ -933,7 +933,7 @@ export default function SetupPage() {
       }
     }
 
-    // Удаление
+    // Delete
     const { error } = await supabase.from('accounts').delete().eq('id', accountId);
 
     if (error) {
@@ -958,7 +958,7 @@ export default function SetupPage() {
 
     setCategorySubmitting(true);
 
-    // Вычисляем sort_order: max по этому kind + 10
+    // Compute sort_order: max for this kind + 10
     const categoriesOfKind = categories.filter((c) => c.kind === categoryKind);
     const maxSortOrder =
       categoriesOfKind.length > 0
@@ -1016,7 +1016,7 @@ export default function SetupPage() {
     setCategoryEditSubmitting(false);
 
     if (error) {
-      // Проверка на unique constraint
+      // Check for unique constraint
       if (error.code === '23505' || error.message.includes('unique') || error.message.includes('duplicate')) {
         setCategoryEditError('A category with this name already exists for this type.');
       } else {
@@ -1039,7 +1039,7 @@ export default function SetupPage() {
     const { error } = await supabase.from('categories').delete().eq('id', categoryId);
 
     if (error) {
-      // Проверка на внешние ключи (использование в transactions)
+      // Check for foreign keys (usage in transactions)
       if (
         error.code === '23503' ||
         error.message.includes('foreign key') ||
@@ -1064,7 +1064,7 @@ export default function SetupPage() {
     setMovingCategoryId(categoryId);
 
     try {
-      // Получаем текущий отсортированный массив категорий этого kind
+      // Get current sorted array of categories of this kind
       const categoriesOfKind = categories
         .filter((c) => c.kind === kind)
         .sort((a, b) => {
@@ -1074,7 +1074,7 @@ export default function SetupPage() {
           return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
         });
 
-      // Находим индекс текущей категории
+      // Find index of current category
       const currentIndex = categoriesOfKind.findIndex((c) => c.id === categoryId);
       if (currentIndex === -1) {
         setMoveCategoryError('Category not found.');
@@ -1082,10 +1082,10 @@ export default function SetupPage() {
         return;
       }
 
-      // Определяем индекс соседа
+      // Determine neighbor index
       const neighborIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
       if (neighborIndex < 0 || neighborIndex >= categoriesOfKind.length) {
-        // Нет соседа - ничего не делаем
+        // No neighbor - do nothing
         setMovingCategoryId(null);
         return;
       }
@@ -1093,8 +1093,8 @@ export default function SetupPage() {
       const current = categoriesOfKind[currentIndex];
       const neighbor = categoriesOfKind[neighborIndex];
 
-      // Swap через 3 обновления
-      // 1) Устанавливаем временное значение для current
+      // Swap via 3 updates
+      // 1) Set temporary value for current
       const { error: error1 } = await supabase
         .from('categories')
         .update({ sort_order: -999999 })
@@ -1107,7 +1107,7 @@ export default function SetupPage() {
         return;
       }
 
-      // 2) Устанавливаем sort_order соседа для current
+      // 2) Set neighbor's sort_order for current
       const { error: error2 } = await supabase
         .from('categories')
         .update({ sort_order: neighbor.sort_order })
@@ -1120,7 +1120,7 @@ export default function SetupPage() {
         return;
       }
 
-      // 3) Устанавливаем sort_order current для соседа
+      // 3) Set current's sort_order for neighbor
       const { error: error3 } = await supabase
         .from('categories')
         .update({ sort_order: current.sort_order })
@@ -1133,7 +1133,7 @@ export default function SetupPage() {
         return;
       }
 
-      // Успешно - обновляем список категорий
+      // Success - update categories list
       await loadCategories();
     } catch (error: any) {
       setMoveCategoryError(`Unexpected error: ${error.message || 'Unknown error'}`);
@@ -1375,7 +1375,7 @@ export default function SetupPage() {
   };
 
   const handleClearPeriod = async () => {
-    // Валидация
+    // Validation
     if (!dateFrom || !dateTo) {
       setClearPeriodError('Both dates are required.');
       return;
@@ -1386,7 +1386,7 @@ export default function SetupPage() {
       return;
     }
 
-    // Подтверждение
+    // Confirmation
     if (!window.confirm(`Delete transactions from ${dateFrom} to ${dateTo}? This cannot be undone.`)) {
       return;
     }
@@ -1396,7 +1396,7 @@ export default function SetupPage() {
     setClearingPeriod(true);
 
     try {
-      // Получаем текущую сессию
+      // Get current session
       const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
       if (sessionError || !sessionData?.session?.user?.id) {
         setClearPeriodError('Failed to get user session.');
@@ -1406,7 +1406,7 @@ export default function SetupPage() {
 
       const userId = sessionData.session.user.id;
 
-      // Формируем безопасные ISO даты
+      // Build safe ISO dates
       const start = new Date(dateFrom + 'T00:00:00');
       const endExclusive = new Date(dateTo + 'T00:00:00');
       endExclusive.setDate(endExclusive.getDate() + 1);
@@ -1414,7 +1414,7 @@ export default function SetupPage() {
       const startISO = start.toISOString();
       const endISO = endExclusive.toISOString();
 
-      // Удаляем транзакции в диапазоне
+      // Delete transactions in range
       const { error: transactionsError } = await supabase
         .from('transactions')
         .delete()
@@ -1428,7 +1428,7 @@ export default function SetupPage() {
         return;
       }
 
-      // Удаляем переводы в диапазоне
+      // Delete transfers in range
       const { error: transfersError } = await supabase
         .from('transfers')
         .delete()
@@ -1442,10 +1442,10 @@ export default function SetupPage() {
         return;
       }
 
-      // Успех
+      // Success
       setClearPeriodSuccess('Transactions for period deleted');
       setClearingPeriod(false);
-      // Очищаем поля дат
+      // Clear date fields
       setDateFrom('');
       setDateTo('');
     } catch (error: any) {
@@ -1593,7 +1593,7 @@ export default function SetupPage() {
       const finnhubPrice = quoteData.price;
       const fetchedAt = quoteData.fetched_at || new Date().toISOString();
 
-      // Определяем quantity в зависимости от режима ввода
+      // Determine quantity based on input mode
       let quantityNum: number;
 
       if (positionInputMode === 'quantity') {
@@ -1628,7 +1628,7 @@ export default function SetupPage() {
         quantityNum = amountNum / finnhubPrice;
       }
 
-      // Общая проверка: NaN / отрицательные значения запрещаем, 0 разрешён
+      // General check: NaN / negative values disallowed, 0 allowed
       if (Number.isNaN(quantityNum) || quantityNum < 0) {
         setPositionSubmitting(false);
         setPositionFormError('Invalid quantity.');
@@ -1814,7 +1814,7 @@ export default function SetupPage() {
       categories
         .filter((c) => c.kind === 'income')
         .sort((a, b) => {
-          // Сортируем по sort_order (nulls last), затем по created_at
+          // Sort by sort_order (nulls last), then by created_at
           const aOrder = a.sort_order ?? Number.MAX_SAFE_INTEGER;
           const bOrder = b.sort_order ?? Number.MAX_SAFE_INTEGER;
           if (aOrder !== bOrder) return aOrder - bOrder;
@@ -1827,7 +1827,7 @@ export default function SetupPage() {
       categories
         .filter((c) => c.kind === 'expense')
         .sort((a, b) => {
-          // Сортируем по sort_order (nulls last), затем по created_at
+          // Sort by sort_order (nulls last), then by created_at
           const aOrder = a.sort_order ?? Number.MAX_SAFE_INTEGER;
           const bOrder = b.sort_order ?? Number.MAX_SAFE_INTEGER;
           if (aOrder !== bOrder) return aOrder - bOrder;
@@ -2032,7 +2032,7 @@ export default function SetupPage() {
                                   onChange={(e) => setEditDebitAnchorAccountId(e.target.value)}
                                   className="w-full rounded-lg border border-neutral-300 px-2 py-1 text-xs outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
                                 >
-                                  <option value="">Выберите счёт</option>
+                                  <option value="">Select account</option>
                                   {debitAccounts.map((debitAcc) => (
                                     <option key={debitAcc.id} value={debitAcc.id}>
                                       {debitAcc.name}
@@ -2208,7 +2208,7 @@ export default function SetupPage() {
 
               <div className="space-y-1">
                 <label className="block text-xs font-medium text-neutral-700" htmlFor="account-name">
-                  Название
+                  Name
                 </label>
                 <input
                   id="account-name"
@@ -2241,7 +2241,7 @@ export default function SetupPage() {
 
                 <div className="space-y-1">
                   <label className="block text-xs font-medium text-neutral-700" htmlFor="account-currency">
-                    Валюта
+                    Currency
                   </label>
                   <select
                     id="account-currency"
@@ -2260,7 +2260,7 @@ export default function SetupPage() {
                   className="block text-xs font-medium text-neutral-700"
                   htmlFor="starting-balance"
                 >
-                  Начальный баланс ({accountCurrency === 'EUR' ? '€' : '$'})
+                  Initial balance ({accountCurrency === 'EUR' ? '€' : '$'})
                 </label>
                 <input
                   id="starting-balance"
@@ -2280,7 +2280,7 @@ export default function SetupPage() {
                     className="block text-xs font-medium text-neutral-700"
                     htmlFor="warning-threshold"
                   >
-                    Порог предупреждения ({accountCurrency === 'EUR' ? '€' : '$'})
+                    Warning threshold ({accountCurrency === 'EUR' ? '€' : '$'})
                   </label>
                   <input
                     id="warning-threshold"
@@ -2301,7 +2301,7 @@ export default function SetupPage() {
                     className="block text-xs font-medium text-neutral-700"
                     htmlFor="warning-threshold"
                   >
-                    Порог предупреждения ({accountCurrency === 'EUR' ? '€' : '$'})
+                    Warning threshold ({accountCurrency === 'EUR' ? '€' : '$'})
                   </label>
                   <input
                     id="warning-threshold"
@@ -2329,7 +2329,7 @@ export default function SetupPage() {
                         className="block text-xs font-medium text-neutral-700"
                         htmlFor="credit-limit"
                       >
-                        Кредитный лимит ({accountCurrency === 'EUR' ? '€' : '$'})
+                        Credit limit ({accountCurrency === 'EUR' ? '€' : '$'})
                       </label>
                       <input
                         id="credit-limit"
@@ -2347,7 +2347,7 @@ export default function SetupPage() {
                         className="block text-xs font-medium text-neutral-700"
                         htmlFor="credit-warning-threshold"
                       >
-                        Порог приближения к лимиту ({accountCurrency === 'EUR' ? '€' : '$'})
+                        Limit approach threshold ({accountCurrency === 'EUR' ? '€' : '$'})
                       </label>
                       <input
                         id="credit-warning-threshold"
@@ -2377,7 +2377,7 @@ export default function SetupPage() {
                       disabled={debitAccounts.length === 0}
                       className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition disabled:bg-neutral-100 focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
                     >
-                      <option value="">Выберите счёт</option>
+                      <option value="">Select account</option>
                       {debitAccounts.map((acc) => (
                         <option key={acc.id} value={acc.id}>
                           {acc.name}
@@ -2661,7 +2661,7 @@ export default function SetupPage() {
 
             <form className="mt-2 space-y-3" onSubmit={handleCreateCategory}>
               <h3 className="text-sm font-semibold text-neutral-900">
-                Добавить категорию
+                Add category
               </h3>
 
               <div className="flex gap-4 text-sm">
@@ -2694,7 +2694,7 @@ export default function SetupPage() {
                   className="block text-xs font-medium text-neutral-700"
                   htmlFor="category-name"
                 >
-                  Название категории
+                  Category name
                 </label>
                 <input
                   id="category-name"
@@ -2791,7 +2791,7 @@ export default function SetupPage() {
                           type="text"
                           value={editBudgetBaseLimitEur}
                           onChange={(e) => setEditBudgetBaseLimitEur(e.target.value)}
-                          placeholder="500,00 или 500.00"
+                          placeholder="500.00 or 500,00"
                           className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
                         />
                       </div>
@@ -2813,16 +2813,16 @@ export default function SetupPage() {
                           className="h-4 w-4 rounded border-neutral-300"
                         />
                         <label htmlFor={`edit-carry-over-${budget.id}`} className="text-sm text-neutral-700">
-                          Перенос остатка
+                          Balance carryover
                         </label>
                       </div>
                     </div>
 
                     <div className="space-y-2">
-                      <label className="block text-xs font-medium text-neutral-700">Категории расходов</label>
+                      <label className="block text-xs font-medium text-neutral-700">Expense categories</label>
                       <div className="max-h-40 space-y-1 overflow-auto rounded-lg border border-neutral-200 p-2">
                         {expenseCategories.length === 0 ? (
-                          <p className="text-xs text-neutral-500">Нет категорий расходов.</p>
+                          <p className="text-xs text-neutral-500">No expense categories.</p>
                         ) : (
                           expenseCategories.map((cat) => {
                             const assignedTo = categoryToBudgetMap.get(cat.id);
@@ -2888,7 +2888,7 @@ export default function SetupPage() {
                     <div>
                       <h4 className="font-semibold text-neutral-900">{budget.name}</h4>
                       <p className="text-sm text-neutral-600">
-                        {budget.base_limit_eur.toFixed(2)} € · с {budget.start_date.slice(0, 10)} ·{' '}
+                        {budget.base_limit_eur.toFixed(2)} € · from {budget.start_date.slice(0, 10)} ·{' '}
                         {budget.carry_over ? 'carry over' : 'no carry over'}
                       </p>
                       {((budgetCategoriesMap.get(budget.id) || []).length > 0) && (
@@ -2925,7 +2925,7 @@ export default function SetupPage() {
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1">
                 <label className="block text-xs font-medium text-neutral-700" htmlFor="budget-name">
-                  Название
+                  Name
                 </label>
                 <input
                   id="budget-name"
@@ -2938,20 +2938,20 @@ export default function SetupPage() {
               </div>
               <div className="space-y-1">
                 <label className="block text-xs font-medium text-neutral-700" htmlFor="budget-limit">
-                  Лимит (EUR)
+                  Limit (EUR)
                 </label>
                 <input
                   id="budget-limit"
                   type="text"
                   value={budgetBaseLimitEur}
                   onChange={(e) => setBudgetBaseLimitEur(e.target.value)}
-                  placeholder="500,00 или 500.00"
+                  placeholder="500.00 or 500,00"
                   className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
                 />
               </div>
               <div className="space-y-1">
                 <label className="block text-xs font-medium text-neutral-700" htmlFor="budget-start-date">
-                  Дата начала
+                  Start date
                 </label>
                 <input
                   id="budget-start-date"
@@ -2970,13 +2970,13 @@ export default function SetupPage() {
                   className="h-4 w-4 rounded border-neutral-300"
                 />
                 <label htmlFor="budget-carry-over" className="text-sm text-neutral-700">
-                  Перенос остатка
+                  Balance carryover
                 </label>
               </div>
             </div>
 
             <div className="space-y-2">
-              <label className="block text-xs font-medium text-neutral-700">Категории расходов</label>
+              <label className="block text-xs font-medium text-neutral-700">Expense categories</label>
               <div className="max-h-40 space-y-1 overflow-auto rounded-lg border border-neutral-200 p-2">
                 {expenseCategories.length === 0 ? (
                   <p className="text-xs text-neutral-500">Create expense categories.</p>
@@ -3362,7 +3362,7 @@ export default function SetupPage() {
                         placeholder="e.g. 1500"
                       />
                       <p className="text-[11px] text-neutral-500">
-                        Quantity будет рассчитано автоматически по текущей цене инструмента.
+                        Quantity will be calculated automatically based on the current instrument price.
                       </p>
                     </div>
                   )}

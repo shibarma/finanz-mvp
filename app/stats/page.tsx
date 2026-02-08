@@ -1138,13 +1138,13 @@ export default function StatsPage() {
                 onClick={() => setPresetPeriod('30d')}
                 className="rounded-lg border border-neutral-300 px-3 py-2 text-xs font-medium text-neutral-800 transition hover:bg-neutral-100"
               >
-                30 дней
+                30 days 
               </button>
               <button
                 onClick={() => setPresetPeriod('month')}
                 className="rounded-lg border border-neutral-300 px-3 py-2 text-xs font-medium text-neutral-800 transition hover:bg-neutral-100"
               >
-                Этот месяц
+                This month
               </button>
             </div>
             <div className="flex flex-col gap-2 sm:flex-row sm:gap-3">
@@ -1187,7 +1187,7 @@ export default function StatsPage() {
           <h2 className="mb-4 text-lg font-semibold text-neutral-900">Period summary</h2>
           <div className="grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-4">
             <div>
-              <p className="text-xs text-neutral-600">Доходы</p>
+              <p className="text-xs text-neutral-600">Income</p>
               <p className="text-2xl font-semibold text-emerald-700">
                 {formatMoney(periodSummary.income)}
               </p>
