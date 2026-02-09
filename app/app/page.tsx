@@ -1037,7 +1037,7 @@ export default function FinanceAppPage() {
         return;
       }
 
-      let qtyRaw =
+      const qtyRaw =
         side === 'Buy'
           ? (amountInput - fee) / pricePerUnit
           : (amountInput + fee) / pricePerUnit;
@@ -1046,14 +1046,6 @@ export default function FinanceAppPage() {
         setError('Quantity must be greater than 0.');
         return;
       }
-
-      qtyRaw = Math.round(qtyRaw * 100) / 100;
-
-      if (qtyRaw <= 0) {
-        setError('Quantity must be greater than 0.');
-        return;
-      }
-
       quantity = qtyRaw;
     }
 
@@ -2131,8 +2123,7 @@ export default function FinanceAppPage() {
                               investSide === 'Buy'
                                 ? quantityParsed.value * priceParsed.value + feeParsed.value
                                 : quantityParsed.value * priceParsed.value - feeParsed.value;
-                            const rounded = Math.round(baseAmount * 100) / 100;
-                            setInvestAmount(rounded.toString());
+                            setInvestAmount(baseAmount.toString());
                           }
                         }
                         setInvestInputMode('amount');
@@ -2200,19 +2191,11 @@ export default function FinanceAppPage() {
                         feeParsed.ok &&
                         priceParsed.value > 0
                       ) {
-                        let qtyRaw =
+                        const qtyRaw =
                           investSide === 'Buy'
                             ? (amountVal - feeParsed.value) / priceParsed.value
                             : (amountVal + feeParsed.value) / priceParsed.value;
-                        if (!Number.isFinite(qtyRaw)) {
-                          return (
-                            <p className="mt-1 text-xs text-red-600">
-                              Quantity must be &gt; 0
-                            </p>
-                          );
-                        }
-                        qtyRaw = Math.round(qtyRaw * 100) / 100;
-                        if (qtyRaw <= 0) {
+                        if (!Number.isFinite(qtyRaw) || qtyRaw <= 0) {
                           return (
                             <p className="mt-1 text-xs text-red-600">
                               Quantity must be &gt; 0
@@ -2284,7 +2267,7 @@ export default function FinanceAppPage() {
                     let quantityForCheck: number | null = null;
 
                     if (investInputMode === 'quantity') {
-                      if (quantityParsed.ok) {
+                      if (quantityParsed.ok && quantityParsed.value > 0) {
                         quantityForCheck = quantityParsed.value;
                       }
                     } else if (
@@ -2293,13 +2276,10 @@ export default function FinanceAppPage() {
                       feeParsed.ok &&
                       priceParsed.value > 0
                     ) {
-                      let qtyRaw =
+                      const qtyRaw =
                         (amountParsed.value + feeParsed.value) / priceParsed.value;
-                      if (Number.isFinite(qtyRaw)) {
-                        qtyRaw = Math.round(qtyRaw * 100) / 100;
-                        if (qtyRaw > 0) {
-                          quantityForCheck = qtyRaw;
-                        }
+                      if (Number.isFinite(qtyRaw) && qtyRaw > 0) {
+                        quantityForCheck = qtyRaw;
                       }
                     }
 

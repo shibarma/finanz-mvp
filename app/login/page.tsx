@@ -46,7 +46,7 @@ export default function LoginPage() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-neutral-50 px-4">
       <div className="w-full max-w-md rounded-2xl border border-neutral-200 bg-white p-8 shadow-sm">
-        <h1 className="mb-6 text-center text-2xl font-semibold text-neutral-900">Вход</h1>
+        <h1 className="mb-6 text-center text-2xl font-semibold text-neutral-900">Login</h1>
         <form className="space-y-4" onSubmit={handleSubmit}>
           <div className="space-y-2">
             <label className="block text-sm font-medium text-neutral-700" htmlFor="email">
@@ -64,7 +64,7 @@ export default function LoginPage() {
           </div>
           <div className="space-y-2">
             <label className="block text-sm font-medium text-neutral-700" htmlFor="password">
-              Пароль
+              Password
             </label>
             <input
               id="password"
@@ -73,11 +73,11 @@ export default function LoginPage() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
-              placeholder="Введите пароль"
+              placeholder="Enter password"
             />
             <div className="text-right">
               <Link href="/forgot-password" className="text-xs font-medium text-neutral-700 underline">
-                Забыли пароль?
+                Forgot password?
               </Link>
             </div>
           </div>
@@ -91,14 +91,14 @@ export default function LoginPage() {
             disabled={loading}
             className="flex w-full items-center justify-center rounded-lg bg-neutral-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:bg-neutral-400"
           >
-            {loading ? 'Входим...' : 'Войти'}
+            {loading ? 'Signing in...' : 'Sign in'}
           </button>
         </form>
 
         <p className="mt-6 text-center text-sm text-neutral-600">
-          Нет аккаунта?{' '}
+          Don't have an account?{' '}
           <Link href="/signup" className="font-semibold text-neutral-900 underline">
-            Зарегистрироваться
+            Sign up
           </Link>
         </p>
       </div>

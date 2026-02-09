@@ -68,11 +68,18 @@ interface Transaction {
   is_investment?: boolean;
 }
 
+interface InstrumentRef {
+  provider_symbol?: string;
+  display_symbol?: string;
+}
+
 interface PositionRow {
   id: string;
   user_id: string;
   broker_account_id: string;
   quote_currency: string | null;
+  instrument_id?: string;
+  instruments?: InstrumentRef | InstrumentRef[] | null;
 }
 
 interface HistoryRow {
@@ -188,6 +195,9 @@ export default function StatsPage() {
   const [fxRows, setFxRows] = useState<FxRow[]>([]);
   const [investmentLoading, setInvestmentLoading] = useState(false);
   const [investmentError, setInvestmentError] = useState<string | null>(null);
+
+  // Instrument price trend
+  const [selectedInstrumentId, setSelectedInstrumentId] = useState<string>('');
 
   // Budgets (read-only analytics)
   const [budgets, setBudgets] = useState<Budget[]>([]);
@@ -393,7 +403,7 @@ export default function StatsPage() {
       const [positionsRes, historyRes, fxRes] = await Promise.all([
         supabase
           .from('positions')
-          .select('id, user_id, broker_account_id, quote_currency')
+          .select('id, user_id, broker_account_id, quote_currency, instrument_id, instruments(provider_symbol, display_symbol)')
           .eq('user_id', uid),
         supabase
           .from('position_price_history')
@@ -1052,6 +1062,104 @@ export default function StatsPage() {
     if (currencyMismatchSeen) investmentWarning.push('Currency mismatch for some positions');
     return { mode: 'broker_usd' as const, data, fxNotLoadedWarning, investmentWarning, brokerName };
   }, [selectedBrokerId, dateFrom, dateTo, historyRows, fxRows, positions, brokers, accounts]);
+
+  // Unique instruments (dedupe by instrument_id), for Instrument price trend dropdown
+  const uniqueInstruments = useMemo(() => {
+    const map = new Map<string, { id: string; label: string; currency: string }>();
+    for (const pos of positions) {
+      const instId = pos.instrument_id;
+      if (!instId) continue;
+      if (map.has(instId)) continue;
+      const inst = pos.instruments;
+      const sym = inst
+        ? (Array.isArray(inst) ? inst[0] : inst)?.display_symbol ||
+          (Array.isArray(inst) ? inst[0] : inst)?.provider_symbol ||
+          '—'
+        : '—';
+      const curr = (pos.quote_currency || 'EUR').toUpperCase();
+      map.set(instId, { id: instId, label: `${sym} (${curr})`, currency: curr });
+    }
+    return Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label));
+  }, [positions]);
+
+  // Instrument price trend chart data: price per unit for selected instrument
+  const instrumentPriceTrendData = useMemo(() => {
+    if (!dateFrom || !dateTo || !selectedInstrumentId) {
+      return { data: [] as Array<{ date: string; price: number | null }>, hasData: false };
+    }
+
+    const positionIds = positions
+      .filter((p) => p.instrument_id === selectedInstrumentId)
+      .map((p) => p.id);
+    if (positionIds.length === 0) {
+      return { data: [], hasData: false };
+    }
+
+    const from = new Date(dateFrom);
+    const to = new Date(dateTo);
+    to.setHours(23, 59, 59, 999);
+
+    const days: string[] = [];
+    const currentDay = new Date(from);
+    while (currentDay <= to) {
+      days.push(currentDay.toISOString().split('T')[0]);
+      currentDay.setDate(currentDay.getDate() + 1);
+    }
+
+    const historyByPosition = new Map<string, HistoryRow[]>();
+    for (const row of historyRows) {
+      if (!positionIds.includes(row.position_id)) continue;
+      const arr = historyByPosition.get(row.position_id) || [];
+      arr.push(row);
+      historyByPosition.set(row.position_id, arr);
+    }
+    for (const arr of historyByPosition.values()) {
+      arr.sort((a, b) => a.captured_date.localeCompare(b.captured_date));
+    }
+
+    const getLatestForPosition = (positionId: string, d: string): HistoryRow | null => {
+      const arr = historyByPosition.get(positionId);
+      if (!arr || arr.length === 0) return null;
+      let lo = 0;
+      let hi = arr.length - 1;
+      if (arr[0].captured_date > d) return null;
+      while (lo < hi) {
+        const mid = Math.ceil((lo + hi) / 2);
+        if (arr[mid].captured_date <= d) lo = mid;
+        else hi = mid - 1;
+      }
+      return arr[lo].captured_date <= d ? arr[lo] : null;
+    };
+
+    const data: Array<{ date: string; price: number | null }> = [];
+    for (const day of days) {
+      const candidates: HistoryRow[] = [];
+      for (const pid of positionIds) {
+        const row = getLatestForPosition(pid, day);
+        if (row) candidates.push(row);
+      }
+      if (candidates.length === 0) {
+        data.push({ date: new Date(day).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' }), price: null });
+      } else {
+        const best = candidates.reduce((a, b) => (a.captured_date >= b.captured_date ? a : b));
+        data.push({ date: new Date(day).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' }), price: best.price });
+      }
+    }
+
+    const hasData = data.some((d) => d.price !== null);
+    return { data, hasData };
+  }, [dateFrom, dateTo, selectedInstrumentId, positions, historyRows]);
+
+  const instrumentCurrency =
+    uniqueInstruments.find((i) => i.id === selectedInstrumentId)?.currency ?? 'EUR';
+
+  useEffect(() => {
+    if (uniqueInstruments.length === 0) {
+      setSelectedInstrumentId('');
+    } else if (!selectedInstrumentId || !uniqueInstruments.some((i) => i.id === selectedInstrumentId)) {
+      setSelectedInstrumentId(uniqueInstruments[0]!.id);
+    }
+  }, [uniqueInstruments, selectedInstrumentId]);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -1756,6 +1864,72 @@ export default function StatsPage() {
             <div className="flex min-h-[200px] items-center justify-center rounded-lg border border-neutral-200 bg-neutral-50 p-8">
               <p className="text-sm text-neutral-500">No data за выбранный период</p>
             </div>
+          )}
+        </section>
+
+        {/* Instrument price trend */}
+        <section className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm md:p-6">
+          <h2 className="mb-4 text-lg font-semibold text-neutral-900">Instrument price trend</h2>
+          <div className="mb-4">
+            <label className="block text-xs font-medium text-neutral-700">Instrument</label>
+            <select
+              value={selectedInstrumentId}
+              onChange={(e) => setSelectedInstrumentId(e.target.value)}
+              className="mt-1 rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+            >
+              {uniqueInstruments.length === 0 ? (
+                <option value="">No instruments yet</option>
+              ) : (
+                uniqueInstruments.map((i) => (
+                  <option key={i.id} value={i.id}>
+                    {i.label}
+                  </option>
+                ))
+              )}
+            </select>
+          </div>
+          {uniqueInstruments.length === 0 ? (
+            <p className="text-sm text-neutral-600">No instruments yet</p>
+          ) : !instrumentPriceTrendData.hasData ? (
+            <p className="text-sm text-neutral-600">No price history for selected instrument</p>
+          ) : (
+            <>
+              <ResponsiveContainer width="100%" height={200}>
+                <LineChart data={instrumentPriceTrendData.data}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="date" />
+                  <YAxis
+                    tickFormatter={(v) =>
+                      instrumentCurrency === 'USD' ? formatMoneyUSD(Number(v)) : formatMoney(Number(v))
+                    }
+                    domain={['auto', 'auto']}
+                    width={80}
+                  />
+                  <Tooltip
+                    formatter={(value: unknown, _name: string) =>
+                      typeof value === 'number'
+                        ? instrumentCurrency === 'USD'
+                          ? formatMoneyUSD(value)
+                          : formatMoney(value)
+                        : String(value ?? '')
+                    }
+                    labelStyle={{ color: '#171717' }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="price"
+                    stroke="#171717"
+                    strokeWidth={2}
+                    dot={{ r: 2 }}
+                    connectNulls={false}
+                    name="Price per unit"
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+              <p className="mt-2 text-xs text-neutral-500">
+                Shows last known price per day (not multiplied by quantity).
+              </p>
+            </>
           )}
         </section>
       </div>
