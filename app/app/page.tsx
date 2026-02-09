@@ -181,9 +181,13 @@ export default function FinanceAppPage() {
   const OPERATIONS_PER_PAGE = 20;
 
   // Фильтры для последних операций
-  const [operationsAccountFilter, setOperationsAccountFilter] = useState<string>('all');
-  const [operationsCategoryFilter, setOperationsCategoryFilter] = useState<string>('all');
+  const [operationsAccountIds, setOperationsAccountIds] = useState<Set<string>>(new Set());
+  const [operationsCategoryIds, setOperationsCategoryIds] = useState<Set<string>>(new Set());
+  const [operationsDateFrom, setOperationsDateFrom] = useState<string>('');
+  const [operationsDateTo, setOperationsDateTo] = useState<string>('');
   const [operationsTypeFilter, setOperationsTypeFilter] = useState<'all' | 'income' | 'expense' | 'transfer'>('all');
+  const [operationsAccountsFilterOpen, setOperationsAccountsFilterOpen] = useState(false);
+  const [operationsCategoriesFilterOpen, setOperationsCategoriesFilterOpen] = useState(false);
 
   // Фильтр видимости счетов в блоке Accounts (только отображение, не влияет на формы)
   const [hiddenAccountIds, setHiddenAccountIds] = useState<Set<string>>(new Set());
@@ -285,6 +289,155 @@ export default function FinanceAppPage() {
     [positions, investBroker],
   );
 
+  // Stable keys for Set deps in useEffect
+  const operationsAccountIdsKey = useMemo(
+    () => Array.from(operationsAccountIds).sort().join('|'),
+    [operationsAccountIds],
+  );
+  const operationsCategoryIdsKey = useMemo(
+    () => Array.from(operationsCategoryIds).sort().join('|'),
+    [operationsCategoryIds],
+  );
+
+  type OperationRow = {
+    id: string;
+    type: 'income' | 'expense' | 'transfer';
+    amount: number;
+    accountId?: string;
+    fromAccountId?: string;
+    toAccountId?: string;
+    accountName?: string;
+    accountCurrency?: AccountCurrency;
+    fromAccountName?: string;
+    fromAccountCurrency?: AccountCurrency;
+    toAccountName?: string;
+    toAccountCurrency?: AccountCurrency;
+    categoryId?: string;
+    categoryName?: string;
+    comment: string | null;
+    date: string;
+  };
+
+  const filteredOperations = useMemo(() => {
+    const allOperations: OperationRow[] = [];
+
+    transfers.forEach((transfer) => {
+      const fromAccount = accountsById.get(transfer.from_account_id);
+      const toAccount = accountsById.get(transfer.to_account_id);
+      allOperations.push({
+        id: transfer.id,
+        type: 'transfer',
+        amount: transfer.amount,
+        fromAccountId: transfer.from_account_id,
+        toAccountId: transfer.to_account_id,
+        fromAccountName: fromAccount?.name,
+        fromAccountCurrency: fromAccount ? getAccountCurrency(fromAccount) : 'EUR',
+        toAccountName: toAccount?.name,
+        toAccountCurrency: toAccount ? getAccountCurrency(toAccount) : 'EUR',
+        comment: transfer.comment,
+        date: transfer.created_at,
+      });
+    });
+
+    transactions
+      .filter((t) => t.kind !== 'transfer' && !t.is_investment)
+      .forEach((tx) => {
+        const account = accountsById.get(tx.account_id);
+        const category = categories.find((c) => c.id === tx.category_id);
+        allOperations.push({
+          id: tx.id,
+          type: tx.kind as 'income' | 'expense',
+          amount: tx.amount,
+          accountId: tx.account_id,
+          accountName: account?.name,
+          accountCurrency: account ? getAccountCurrency(account) : 'EUR',
+          categoryId: tx.category_id || undefined,
+          categoryName: category?.name,
+          comment: tx.comment,
+          date: tx.created_at,
+        });
+      });
+
+    const filtered = allOperations.filter((op) => {
+      if (operationsTypeFilter !== 'all' && op.type !== operationsTypeFilter) return false;
+
+      if (operationsAccountIds.size > 0) {
+        if (op.type === 'transfer') {
+          if (
+            !op.fromAccountId ||
+            !op.toAccountId ||
+            (!operationsAccountIds.has(op.fromAccountId) && !operationsAccountIds.has(op.toAccountId))
+          ) {
+            return false;
+          }
+        } else {
+          if (!op.accountId || !operationsAccountIds.has(op.accountId)) return false;
+        }
+      }
+
+      if (operationsCategoryIds.size > 0) {
+        if (op.type === 'transfer') return false;
+        if (!op.categoryId || !operationsCategoryIds.has(op.categoryId)) return false;
+      }
+
+      if (operationsDateFrom) {
+        const fromStart = new Date(operationsDateFrom + 'T00:00:00');
+        if (new Date(op.date) < fromStart) return false;
+      }
+      if (operationsDateTo) {
+        const toEnd = new Date(operationsDateTo + 'T00:00:00');
+        toEnd.setHours(23, 59, 59, 999);
+        if (new Date(op.date) > toEnd) return false;
+      }
+
+      return true;
+    });
+
+    filtered.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    return filtered;
+  }, [
+    accountsById,
+    transactions,
+    transfers,
+    categories,
+    operationsTypeFilter,
+    operationsAccountIds,
+    operationsCategoryIds,
+    operationsDateFrom,
+    operationsDateTo,
+  ]);
+
+  const visibleTotals = useMemo(() => {
+    let visibleIncomeEur = 0;
+    let visibleExpenseEur = 0;
+
+    for (const op of filteredOperations) {
+      if (op.type !== 'income' && op.type !== 'expense') continue;
+
+      const account = op.accountId ? accountsById.get(op.accountId) : undefined;
+      const currency = account?.currency ?? 'EUR';
+
+      let eurAmount: number;
+      if (currency === 'USD') {
+        if (fxRate != null && fxRate > 0) {
+          eurAmount = op.amount * fxRate;
+        } else {
+          eurAmount = op.amount;
+        }
+      } else {
+        eurAmount = op.amount;
+      }
+
+      if (op.type === 'income') {
+        visibleIncomeEur += eurAmount;
+      } else {
+        visibleExpenseEur += eurAmount;
+      }
+    }
+
+    return { visibleIncomeEur, visibleExpenseEur };
+  }, [filteredOperations, accountsById, fxRate]);
+
   const investParsed = useMemo(
     () => ({
       quantityParsed: parseMoneyExpression(investQuantity),
@@ -348,7 +501,7 @@ export default function FinanceAppPage() {
   // При изменении фильтров сбрасываем страницу операций на первую
   useEffect(() => {
     setOperationsPage(0);
-  }, [operationsAccountFilter, operationsCategoryFilter, operationsTypeFilter]);
+  }, [operationsTypeFilter, operationsDateFrom, operationsDateTo, operationsAccountIdsKey, operationsCategoryIdsKey]);
 
   // Hydrate account visibility filter from localStorage on mount
   useEffect(() => {
@@ -392,6 +545,29 @@ export default function FinanceAppPage() {
 
   const selectAllAccounts = () => setHiddenAccountIds(new Set());
   const clearAccountsFilter = () => setHiddenAccountIds(new Set());
+
+  const toggleOperationsAccount = (accountId: string) => {
+    setOperationsAccountIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(accountId)) next.delete(accountId);
+      else next.add(accountId);
+      return next;
+    });
+  };
+  const selectAllOperationsAccounts = () => setOperationsAccountIds(new Set(accounts.map((a) => a.id)));
+  const clearOperationsAccountsFilter = () => setOperationsAccountIds(new Set());
+
+  const toggleOperationsCategory = (categoryId: string) => {
+    setOperationsCategoryIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(categoryId)) next.delete(categoryId);
+      else next.add(categoryId);
+      return next;
+    });
+  };
+  const selectAllOperationsCategories = () =>
+    setOperationsCategoryIds(new Set(categories.filter((c) => c.kind === 'income' || c.kind === 'expense').map((c) => c.id)));
+  const clearOperationsCategoriesFilter = () => setOperationsCategoryIds(new Set());
 
   const [accountsFilterOpen, setAccountsFilterOpen] = useState(false);
 
@@ -2500,10 +2676,7 @@ export default function FinanceAppPage() {
                 </span>
                 <button
                   onClick={() => setOperationsPage((p) => p + 1)}
-                  disabled={
-                    (operationsPage + 1) * OPERATIONS_PER_PAGE >=
-                    transfers.length + transactions.filter((t) => t.kind !== 'transfer' && !t.is_investment).length
-                  }
+                  disabled={(operationsPage + 1) * OPERATIONS_PER_PAGE >= filteredOperations.length}
                   className="rounded-lg border border-neutral-300 px-3 py-1 text-xs font-medium text-neutral-800 transition hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   →
@@ -2512,34 +2685,126 @@ export default function FinanceAppPage() {
             </div>
             <div className="flex flex-col gap-2 text-xs md:flex-row md:flex-wrap md:gap-3">
               <div className="flex flex-col gap-1">
-                <span className="font-medium text-neutral-700">Account</span>
-                <select
-                  value={operationsAccountFilter}
-                  onChange={(e) => setOperationsAccountFilter(e.target.value)}
-                  className="w-full min-w-0 rounded-lg border border-neutral-300 bg-white px-2 py-1 text-xs outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200 md:min-w-[160px]"
-                >
-                  <option value="all">All accounts</option>
-                  {accounts.map((acc) => (
-                    <option key={acc.id} value={acc.id}>
-                      {acc.name}
-                    </option>
-                  ))}
-                </select>
+                <span className="font-medium text-neutral-700">Accounts</span>
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOperationsAccountsFilterOpen((o) => !o);
+                      setOperationsCategoriesFilterOpen(false);
+                    }}
+                    className="w-full min-w-0 rounded-lg border border-neutral-300 bg-white px-2 py-1 text-xs outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200 md:min-w-[160px] text-left"
+                  >
+                    {operationsAccountIds.size === 0 ? 'All' : `${operationsAccountIds.size} selected`}
+                  </button>
+                  {operationsAccountsFilterOpen && (
+                    <div className="absolute left-0 top-full z-10 mt-1 min-w-[200px] rounded-lg border border-neutral-200 bg-white py-2 shadow-lg">
+                      <div className="max-h-48 overflow-y-auto px-3 py-1">
+                        {accounts.map((acc) => (
+                          <label
+                            key={acc.id}
+                            className="flex cursor-pointer items-center gap-2 py-1.5 text-sm text-neutral-800 hover:bg-neutral-50"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={operationsAccountIds.has(acc.id)}
+                              onChange={() => toggleOperationsAccount(acc.id)}
+                              className="h-4 w-4 rounded border-neutral-300"
+                            />
+                            <span>{acc.name}</span>
+                          </label>
+                        ))}
+                      </div>
+                      <div className="mt-2 flex gap-2 border-t border-neutral-100 px-3 pt-2">
+                        <button
+                          type="button"
+                          onClick={selectAllOperationsAccounts}
+                          className="rounded px-2 py-1 text-xs font-medium text-neutral-600 hover:bg-neutral-100"
+                        >
+                          Select all
+                        </button>
+                        <button
+                          type="button"
+                          onClick={clearOperationsAccountsFilter}
+                          className="rounded px-2 py-1 text-xs font-medium text-neutral-600 hover:bg-neutral-100"
+                        >
+                          Clear
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
               <div className="flex flex-col gap-1">
-                <span className="font-medium text-neutral-700">Category</span>
-                <select
-                  value={operationsCategoryFilter}
-                  onChange={(e) => setOperationsCategoryFilter(e.target.value)}
-                  className="w-full min-w-0 rounded-lg border border-neutral-300 bg-white px-2 py-1 text-xs outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200 md:min-w-[160px]"
-                >
-                  <option value="all">All categories</option>
-                  {categories.map((cat) => (
-                    <option key={cat.id} value={cat.id}>
-                      {cat.name}
-                    </option>
-                  ))}
-                </select>
+                <span className="font-medium text-neutral-700">Categories</span>
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOperationsCategoriesFilterOpen((o) => !o);
+                      setOperationsAccountsFilterOpen(false);
+                    }}
+                    className="w-full min-w-0 rounded-lg border border-neutral-300 bg-white px-2 py-1 text-xs outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200 md:min-w-[160px] text-left"
+                  >
+                    {operationsCategoryIds.size === 0 ? 'All' : `${operationsCategoryIds.size} selected`}
+                  </button>
+                  {operationsCategoriesFilterOpen && (
+                    <div className="absolute left-0 top-full z-10 mt-1 min-w-[200px] rounded-lg border border-neutral-200 bg-white py-2 shadow-lg">
+                      <div className="max-h-48 overflow-y-auto px-3 py-1">
+                        {categories
+                          .filter((c) => c.kind === 'income' || c.kind === 'expense')
+                          .map((cat) => (
+                            <label
+                              key={cat.id}
+                              className="flex cursor-pointer items-center gap-2 py-1.5 text-sm text-neutral-800 hover:bg-neutral-50"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={operationsCategoryIds.has(cat.id)}
+                                onChange={() => toggleOperationsCategory(cat.id)}
+                                className="h-4 w-4 rounded border-neutral-300"
+                              />
+                              <span>{cat.name}</span>
+                            </label>
+                          ))}
+                      </div>
+                      <div className="mt-2 flex gap-2 border-t border-neutral-100 px-3 pt-2">
+                        <button
+                          type="button"
+                          onClick={selectAllOperationsCategories}
+                          className="rounded px-2 py-1 text-xs font-medium text-neutral-600 hover:bg-neutral-100"
+                        >
+                          Select all
+                        </button>
+                        <button
+                          type="button"
+                          onClick={clearOperationsCategoriesFilter}
+                          className="rounded px-2 py-1 text-xs font-medium text-neutral-600 hover:bg-neutral-100"
+                        >
+                          Clear
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="flex flex-col gap-1">
+                <span className="font-medium text-neutral-700">From</span>
+                <input
+                  type="date"
+                  value={operationsDateFrom}
+                  onChange={(e) => setOperationsDateFrom(e.target.value)}
+                  className="w-full min-w-0 rounded-lg border border-neutral-300 bg-white px-2 py-1 text-xs outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200 md:min-w-[140px]"
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <span className="font-medium text-neutral-700">To</span>
+                <input
+                  type="date"
+                  value={operationsDateTo}
+                  onChange={(e) => setOperationsDateTo(e.target.value)}
+                  className="w-full min-w-0 rounded-lg border border-neutral-300 bg-white px-2 py-1 text-xs outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200 md:min-w-[140px]"
+                />
               </div>
               <div className="flex flex-col gap-1">
                 <span className="font-medium text-neutral-700">Type</span>
@@ -2593,104 +2858,22 @@ export default function FinanceAppPage() {
             </div>
           </div>
 
+          <div className="mb-3 grid grid-cols-2 gap-3 text-xs md:flex md:gap-6">
+            <div>
+              <p className="text-neutral-600">Income (visible)</p>
+              <p className="font-semibold text-emerald-700">
+                {formatMoney(visibleTotals.visibleIncomeEur, 'EUR')}
+              </p>
+            </div>
+            <div>
+              <p className="text-neutral-600">Expense (visible)</p>
+              <p className="font-semibold text-red-700">
+                {formatMoney(visibleTotals.visibleExpenseEur, 'EUR')}
+              </p>
+            </div>
+          </div>
+
           {(() => {
-            // Объединяем transfers и transactions для отображения
-            const allOperations: Array<{
-              id: string;
-              type: 'income' | 'expense' | 'transfer';
-              amount: number;
-              accountId?: string;
-              fromAccountId?: string;
-              toAccountId?: string;
-              accountName?: string;
-              accountCurrency?: AccountCurrency;
-              fromAccountName?: string;
-              fromAccountCurrency?: AccountCurrency;
-              toAccountName?: string;
-              toAccountCurrency?: AccountCurrency;
-              categoryId?: string;
-              categoryName?: string;
-              comment: string | null;
-              date: string;
-            }> = [];
-
-            // Добавляем transfers
-            transfers.forEach((transfer) => {
-              const fromAccount = accountsById.get(transfer.from_account_id);
-              const toAccount = accountsById.get(transfer.to_account_id);
-              allOperations.push({
-                id: transfer.id,
-                type: 'transfer',
-                amount: transfer.amount,
-                fromAccountId: transfer.from_account_id,
-                toAccountId: transfer.to_account_id,
-                fromAccountName: fromAccount?.name,
-                fromAccountCurrency: fromAccount ? getAccountCurrency(fromAccount) : 'EUR',
-                toAccountName: toAccount?.name,
-                toAccountCurrency: toAccount ? getAccountCurrency(toAccount) : 'EUR',
-                comment: transfer.comment,
-                date: transfer.created_at,
-              });
-            });
-
-            // Добавляем income/expense transactions (исключаем transfer и investment)
-            transactions
-              .filter((t) => t.kind !== 'transfer' && !t.is_investment)
-              .forEach((tx) => {
-                const account = accountsById.get(tx.account_id);
-                const category = categories.find((c) => c.id === tx.category_id);
-                allOperations.push({
-                  id: tx.id,
-                  type: tx.kind as 'income' | 'expense',
-                  amount: tx.amount,
-                  accountId: tx.account_id,
-                  accountName: account?.name,
-                  accountCurrency: account ? getAccountCurrency(account) : 'EUR',
-                  categoryId: tx.category_id || undefined,
-                  categoryName: category?.name,
-                  comment: tx.comment,
-                  date: tx.created_at,
-                });
-              });
-
-            // Применяем фильтры
-            const filteredOperations = allOperations.filter((op) => {
-              // Фильтр по типу
-              if (operationsTypeFilter !== 'all' && op.type !== operationsTypeFilter) {
-                return false;
-              }
-
-              // Фильтр по счёту
-              if (operationsAccountFilter !== 'all') {
-                if (op.type === 'transfer') {
-                  if (op.fromAccountId !== operationsAccountFilter && op.toAccountId !== operationsAccountFilter) {
-                    return false;
-                  }
-                } else {
-                  if (op.accountId !== operationsAccountFilter) {
-                    return false;
-                  }
-                }
-              }
-
-              // Фильтр по категории
-              if (operationsCategoryFilter !== 'all') {
-                // Для переводов категория не применяется — при выборе категории скрываем переводы
-                if (op.type === 'transfer') {
-                  return false;
-                }
-                if (op.categoryId !== operationsCategoryFilter) {
-                  return false;
-                }
-              }
-
-              return true;
-            });
-
-            // Сортируем по дате (новые сначала)
-            filteredOperations.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-
-            // Пагинация
             const startIndex = operationsPage * OPERATIONS_PER_PAGE;
             const endIndex = startIndex + OPERATIONS_PER_PAGE;
             const paginatedOperations = filteredOperations.slice(startIndex, endIndex);
