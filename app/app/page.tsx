@@ -244,7 +244,9 @@ export default function FinanceAppPage() {
   const [investBroker, setInvestBroker] = useState<string>('');
   const [investInstrument, setInvestInstrument] = useState<string>('');
   const [investSide, setInvestSide] = useState<'Buy' | 'Sell'>('Buy');
+  const [investInputMode, setInvestInputMode] = useState<'quantity' | 'amount'>('quantity');
   const [investQuantity, setInvestQuantity] = useState('');
+  const [investAmount, setInvestAmount] = useState('');
   const [investPricePerUnit, setInvestPricePerUnit] = useState('');
   const [investFee, setInvestFee] = useState('0');
   const [investComment, setInvestComment] = useState('');
@@ -281,6 +283,16 @@ export default function FinanceAppPage() {
   const positionsByBroker = useMemo(
     () => (investBroker ? positions.filter((p) => p.broker_account_id === investBroker) : []),
     [positions, investBroker],
+  );
+
+  const investParsed = useMemo(
+    () => ({
+      quantityParsed: parseMoneyExpression(investQuantity),
+      amountParsed: parseMoneyExpression(investAmount),
+      priceParsed: parseMoneyExpression(investPricePerUnit),
+      feeParsed: parseMoneyExpression(investFee || '0'),
+    }),
+    [investQuantity, investAmount, investPricePerUnit, investFee],
   );
 
   // Reset instrument when broker changes; set price_per_unit when instrument selected
@@ -980,13 +992,6 @@ export default function FinanceAppPage() {
 
     setError(null);
 
-    const quantityParsed = parseMoneyExpression(investQuantity);
-    if (!quantityParsed.ok) {
-      setError(quantityParsed.error);
-      return;
-    }
-    const quantity = quantityParsed.value;
-
     const priceParsed = parseMoneyExpression(investPricePerUnit);
     if (!priceParsed.ok) {
       setError(priceParsed.error);
@@ -1000,6 +1005,57 @@ export default function FinanceAppPage() {
       return;
     }
     const fee = feeParsed.value;
+
+    let quantity: number;
+
+    if (investInputMode === 'quantity') {
+      const quantityParsed = parseMoneyExpression(investQuantity);
+      if (!quantityParsed.ok) {
+        setError(quantityParsed.error);
+        return;
+      }
+      quantity = quantityParsed.value;
+    } else {
+      const amountParsed = parseMoneyExpression(investAmount);
+      if (!amountParsed.ok) {
+        setError(amountParsed.error);
+        return;
+      }
+      const amountInput = amountParsed.value;
+
+      if (amountInput <= 0) {
+        setError('Amount must be greater than 0.');
+        return;
+      }
+
+      if (pricePerUnit <= 0) {
+        setError('Price per unit must be greater than 0.');
+        return;
+      }
+      if (fee < 0) {
+        setError('Fee must be at least 0.');
+        return;
+      }
+
+      let qtyRaw =
+        side === 'Buy'
+          ? (amountInput - fee) / pricePerUnit
+          : (amountInput + fee) / pricePerUnit;
+
+      if (!Number.isFinite(qtyRaw) || qtyRaw <= 0) {
+        setError('Quantity must be greater than 0.');
+        return;
+      }
+
+      qtyRaw = Math.round(qtyRaw * 100) / 100;
+
+      if (qtyRaw <= 0) {
+        setError('Quantity must be greater than 0.');
+        return;
+      }
+
+      quantity = qtyRaw;
+    }
 
     if (!investBroker) {
       setError('Select broker.');
@@ -2042,27 +2098,132 @@ export default function FinanceAppPage() {
                     <option value="Sell">Sell</option>
                   </select>
                 </div>
-                <div>
-                  <label className="block text-xs font-medium text-neutral-700">Quantity</label>
-                  <input
-                    type="text"
-                    value={investQuantity}
-                    onChange={(e) => setInvestQuantity(e.target.value)}
-                    className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
-                    placeholder="0"
-                  />
-                  <p className="mt-1 text-xs text-neutral-500">
-                    You can enter expressions: 5+6-2, supports + - * / ( )
-                  </p>
-                  {parseFloat(investQuantity) <= 0 && investQuantity !== '' && (
-                    <p className="mt-1 text-xs text-red-600">Quantity must be &gt; 0</p>
-                  )}
-                  {investSide === 'Sell' && investInstrument && (
-                    <p className="mt-1 text-xs text-neutral-500">
-                      For Sell, quantity must be ≤ current position (validated later)
-                    </p>
-                  )}
+                <div className="space-y-1">
+                  <span className="block text-xs font-medium text-neutral-700">Input mode</span>
+                  <div className="inline-flex rounded-lg border border-neutral-300 bg-neutral-50 p-0.5 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setInvestInputMode('quantity');
+                      }}
+                      className={`px-3 py-1 rounded-md ${
+                        investInputMode === 'quantity'
+                          ? 'bg-white text-neutral-900 shadow-sm'
+                          : 'text-neutral-600'
+                      }`}
+                    >
+                      Quantity
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (investInputMode !== 'amount') {
+                          const { quantityParsed, priceParsed, feeParsed } = investParsed;
+                          if (
+                            quantityParsed.ok &&
+                            priceParsed.ok &&
+                            feeParsed.ok &&
+                            quantityParsed.value > 0 &&
+                            priceParsed.value > 0 &&
+                            feeParsed.value >= 0
+                          ) {
+                            const baseAmount =
+                              investSide === 'Buy'
+                                ? quantityParsed.value * priceParsed.value + feeParsed.value
+                                : quantityParsed.value * priceParsed.value - feeParsed.value;
+                            const rounded = Math.round(baseAmount * 100) / 100;
+                            setInvestAmount(rounded.toString());
+                          }
+                        }
+                        setInvestInputMode('amount');
+                      }}
+                      className={`px-3 py-1 rounded-md ${
+                        investInputMode === 'amount'
+                          ? 'bg-white text-neutral-900 shadow-sm'
+                          : 'text-neutral-600'
+                      }`}
+                    >
+                      Amount
+                    </button>
+                  </div>
                 </div>
+                {investInputMode === 'quantity' ? (
+                  <div>
+                    <label className="block text-xs font-medium text-neutral-700">Quantity</label>
+                    <input
+                      type="text"
+                      value={investQuantity}
+                      onChange={(e) => setInvestQuantity(e.target.value)}
+                      className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                      placeholder="0"
+                    />
+                    <p className="mt-1 text-xs text-neutral-500">
+                      You can enter expressions: 5+6-2, supports + - * / ( )
+                    </p>
+                    {parseFloat(investQuantity) <= 0 && investQuantity !== '' && (
+                      <p className="mt-1 text-xs text-red-600">Quantity must be &gt; 0</p>
+                    )}
+                    {investSide === 'Sell' && investInstrument && (
+                      <p className="mt-1 text-xs text-neutral-500">
+                        For Sell, quantity must be ≤ current position (validated later)
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <div>
+                    <label className="block text-xs font-medium text-neutral-700">Amount</label>
+                    <input
+                      type="text"
+                      value={investAmount}
+                      onChange={(e) => setInvestAmount(e.target.value)}
+                      className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                      placeholder="0"
+                    />
+                    <p className="mt-1 text-xs text-neutral-500">
+                      You can enter expressions: 5+6-2, supports + - * / ( )
+                    </p>
+                    {investAmount.trim() !== '' && (() => {
+                      const { amountParsed, priceParsed, feeParsed } = investParsed;
+                      if (!amountParsed.ok) {
+                        return (
+                          <p className="mt-1 text-xs text-red-600">{amountParsed.error}</p>
+                        );
+                      }
+                      const amountVal = amountParsed.value;
+                      if (amountVal <= 0) {
+                        return (
+                          <p className="mt-1 text-xs text-red-600">Amount must be &gt; 0</p>
+                        );
+                      }
+                      if (
+                        priceParsed.ok &&
+                        feeParsed.ok &&
+                        priceParsed.value > 0
+                      ) {
+                        let qtyRaw =
+                          investSide === 'Buy'
+                            ? (amountVal - feeParsed.value) / priceParsed.value
+                            : (amountVal + feeParsed.value) / priceParsed.value;
+                        if (!Number.isFinite(qtyRaw)) {
+                          return (
+                            <p className="mt-1 text-xs text-red-600">
+                              Quantity must be &gt; 0
+                            </p>
+                          );
+                        }
+                        qtyRaw = Math.round(qtyRaw * 100) / 100;
+                        if (qtyRaw <= 0) {
+                          return (
+                            <p className="mt-1 text-xs text-red-600">
+                              Quantity must be &gt; 0
+                            </p>
+                          );
+                        }
+                      }
+                      return null;
+                    })()}
+                  </div>
+                )}
                 <div>
                   <label className="block text-xs font-medium text-neutral-700">Price per unit</label>
                   <input
@@ -2100,24 +2261,57 @@ export default function FinanceAppPage() {
                   />
                 </div>
                 {(() => {
-                  const qty = parseFloat(investQuantity);
-                  const price = parseFloat(investPricePerUnit);
-                  const fee = parseFloat(investFee);
-                  const valid =
-                    investBroker &&
-                    investInstrument &&
-                    !Number.isNaN(qty) &&
-                    qty > 0 &&
-                    !Number.isNaN(price) &&
-                    price > 0 &&
-                    !Number.isNaN(fee) &&
-                    fee >= 0;
+                  const { quantityParsed, amountParsed, priceParsed, feeParsed } = investParsed;
+
+                  const hasBrokerAndInstrument = investBroker && investInstrument;
+
+                  let inputOk = false;
+                  if (investInputMode === 'quantity') {
+                    inputOk = quantityParsed.ok && quantityParsed.value > 0;
+                  } else {
+                    inputOk = amountParsed.ok && amountParsed.value > 0;
+                  }
+
+                  const priceOk = priceParsed.ok && priceParsed.value > 0;
+                  const feeOk = feeParsed.ok && feeParsed.value >= 0;
+
+                  const valid = hasBrokerAndInstrument && inputOk && priceOk && feeOk;
                   const canBuy = valid && investSide === 'Buy';
                   const canSell = valid && investSide === 'Sell';
-                  const sellQtyOk =
-                    investSide !== 'Sell' ||
-                    !investInstrument ||
-                    parseFloat(investQuantity) <= (positions.find((p) => p.id === investInstrument)?.quantity ?? 0);
+
+                  let sellQtyOk = true;
+                  if (investSide === 'Sell' && investInstrument) {
+                    let quantityForCheck: number | null = null;
+
+                    if (investInputMode === 'quantity') {
+                      if (quantityParsed.ok) {
+                        quantityForCheck = quantityParsed.value;
+                      }
+                    } else if (
+                      amountParsed.ok &&
+                      priceParsed.ok &&
+                      feeParsed.ok &&
+                      priceParsed.value > 0
+                    ) {
+                      let qtyRaw =
+                        (amountParsed.value + feeParsed.value) / priceParsed.value;
+                      if (Number.isFinite(qtyRaw)) {
+                        qtyRaw = Math.round(qtyRaw * 100) / 100;
+                        if (qtyRaw > 0) {
+                          quantityForCheck = qtyRaw;
+                        }
+                      }
+                    }
+
+                    if (quantityForCheck == null) {
+                      sellQtyOk = false;
+                    } else {
+                      const currentQty =
+                        positions.find((p) => p.id === investInstrument)?.quantity ?? 0;
+                      sellQtyOk = quantityForCheck <= currentQty;
+                    }
+                  }
+
                   return (
                     <div className="flex flex-col gap-2 md:flex-row">
                       <button
