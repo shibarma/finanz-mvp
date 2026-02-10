@@ -112,6 +112,27 @@ const getCurrencySymbol = (currency: AccountCurrency | null): string => {
   return (currency || 'EUR') === 'USD' ? '$' : '€';
 };
 
+// Helpers для работы с датой/временем операций
+const toDateTimeLocalValue = (date: Date): string => {
+  const pad = (n: number) => n.toString().padStart(2, '0');
+  const year = date.getFullYear();
+  const month = pad(date.getMonth() + 1);
+  const day = pad(date.getDate());
+  const hours = pad(date.getHours());
+  const minutes = pad(date.getMinutes());
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+};
+
+const parseDateTimeLocal = (value: string): Date => {
+  // Строка формата YYYY-MM-DDTHH:mm интерпретируется как локальное время пользователя
+  return new Date(value);
+};
+
+const isFutureDate = (date: Date): boolean => {
+  const now = new Date();
+  return date.getTime() > now.getTime();
+};
+
 // Helper для получения валюты счета
 const getAccountCurrency = (account: Account | undefined): AccountCurrency => {
   return (account?.currency || 'EUR') as AccountCurrency;
@@ -209,6 +230,7 @@ export default function FinanceAppPage() {
   const [editToAccount, setEditToAccount] = useState('');
   const [editCategory, setEditCategory] = useState('');
   const [editComment, setEditComment] = useState('');
+  const [editDateTime, setEditDateTime] = useState('');
   const [savingEdit, setSavingEdit] = useState(false);
 
   // Редактирование сделки с ценными бумагами
@@ -228,6 +250,7 @@ export default function FinanceAppPage() {
   const [categoryIncome, setCategoryIncome] = useState<string>('');
   const [commentIncome, setCommentIncome] = useState('');
   const [submittingIncome, setSubmittingIncome] = useState(false);
+  const [incomeDateTime, setIncomeDateTime] = useState<string>(() => toDateTimeLocalValue(new Date()));
 
   // Expense form
   const [amountExpense, setAmountExpense] = useState('');
@@ -235,6 +258,7 @@ export default function FinanceAppPage() {
   const [categoryExpense, setCategoryExpense] = useState<string>('');
   const [commentExpense, setCommentExpense] = useState('');
   const [submittingExpense, setSubmittingExpense] = useState(false);
+  const [expenseDateTime, setExpenseDateTime] = useState<string>(() => toDateTimeLocalValue(new Date()));
 
   // Transfer form
   const [amountTransfer, setAmountTransfer] = useState('');
@@ -243,6 +267,7 @@ export default function FinanceAppPage() {
   const [isCreditRepayment, setIsCreditRepayment] = useState(false);
   const [commentTransfer, setCommentTransfer] = useState('');
   const [submittingTransfer, setSubmittingTransfer] = useState(false);
+  const [transferDateTime, setTransferDateTime] = useState<string>(() => toDateTimeLocalValue(new Date()));
 
   // Invest Buy/Sell form
   const [investBroker, setInvestBroker] = useState<string>('');
@@ -864,6 +889,20 @@ export default function FinanceAppPage() {
 
     setError(null);
 
+    if (!incomeDateTime) {
+      setError('Date is required');
+      return;
+    }
+    const incomeDate = parseDateTimeLocal(incomeDateTime);
+    if (Number.isNaN(incomeDate.getTime())) {
+      setError('Invalid date');
+      return;
+    }
+    if (isFutureDate(incomeDate)) {
+      setError('Date cannot be in the future');
+      return;
+    }
+
     const parsed = parseMoneyExpression(amountIncome);
     if (!parsed.ok) {
       setError(parsed.error);
@@ -891,6 +930,7 @@ export default function FinanceAppPage() {
       category_id: categoryIncome || null,
       comment: commentIncome.trim() || null,
       transfer_id: null,
+      created_at: incomeDate.toISOString(),
     });
 
     setSubmittingIncome(false);
@@ -902,6 +942,7 @@ export default function FinanceAppPage() {
 
     setAmountIncome('');
     setCommentIncome('');
+    setIncomeDateTime(toDateTimeLocalValue(new Date()));
     setOperationsPage(0);
     await Promise.all([loadTransactions(userId), loadTransfers(userId)]);
   };
@@ -910,6 +951,20 @@ export default function FinanceAppPage() {
     if (!userId) return;
 
     setError(null);
+
+    if (!expenseDateTime) {
+      setError('Date is required');
+      return;
+    }
+    const expenseDate = parseDateTimeLocal(expenseDateTime);
+    if (Number.isNaN(expenseDate.getTime())) {
+      setError('Invalid date');
+      return;
+    }
+    if (isFutureDate(expenseDate)) {
+      setError('Date cannot be in the future');
+      return;
+    }
 
     const parsed = parseMoneyExpression(amountExpense);
     if (!parsed.ok) {
@@ -957,6 +1012,7 @@ export default function FinanceAppPage() {
       category_id: categoryExpense || null,
       comment: commentExpense.trim() || null,
       transfer_id: null,
+      created_at: expenseDate.toISOString(),
     });
 
     setSubmittingExpense(false);
@@ -968,6 +1024,7 @@ export default function FinanceAppPage() {
 
     setAmountExpense('');
     setCommentExpense('');
+    setExpenseDateTime(toDateTimeLocalValue(new Date()));
     setOperationsPage(0);
     await Promise.all([loadTransactions(userId), loadTransfers(userId)]);
   };
@@ -976,6 +1033,20 @@ export default function FinanceAppPage() {
     if (!userId) return;
 
     setError(null);
+
+    if (!transferDateTime) {
+      setError('Date is required');
+      return;
+    }
+    const transferDate = parseDateTimeLocal(transferDateTime);
+    if (Number.isNaN(transferDate.getTime())) {
+      setError('Invalid date');
+      return;
+    }
+    if (isFutureDate(transferDate)) {
+      setError('Date cannot be in the future');
+      return;
+    }
 
     const parsed = parseMoneyExpression(amountTransfer);
     if (!parsed.ok) {
@@ -1097,6 +1168,7 @@ export default function FinanceAppPage() {
         amount,
         is_credit_repayment: isCreditRepayment,
         comment: commentTransfer.trim() || null,
+        created_at: transferDate.toISOString(),
       })
       .select()
       .single();
@@ -1123,6 +1195,7 @@ export default function FinanceAppPage() {
       transfer_id: transferData.id,
       category_id: null,
       comment: commentTransfer.trim() || null,
+      created_at: transferDate.toISOString(),
     });
 
     if (txOutError) {
@@ -1142,6 +1215,7 @@ export default function FinanceAppPage() {
       transfer_id: transferData.id,
       category_id: null,
       comment: commentTransfer.trim() || null,
+      created_at: transferDate.toISOString(),
     });
 
     if (txInError) {
@@ -1159,6 +1233,7 @@ export default function FinanceAppPage() {
     setToAccountTransfer('');
     setIsCreditRepayment(false);
     setCommentTransfer('');
+    setTransferDateTime(toDateTimeLocalValue(new Date()));
     setOperationsPage(0);
     await Promise.all([loadTransactions(userId), loadTransfers(userId)]);
   };
@@ -1406,6 +1481,7 @@ export default function FinanceAppPage() {
       setEditFromAccount(transfer.from_account_id);
       setEditToAccount(transfer.to_account_id);
       setEditComment(transfer.comment || '');
+      setEditDateTime(toDateTimeLocalValue(new Date(transfer.created_at)));
     } else {
       // Найти transaction
       const transaction = transactions.find((t) => t.id === op.id);
@@ -1423,6 +1499,7 @@ export default function FinanceAppPage() {
       setEditAccount(transaction.account_id);
       setEditCategory(transaction.category_id || '');
       setEditComment(transaction.comment || '');
+      setEditDateTime(toDateTimeLocalValue(new Date(transaction.created_at)));
     }
   };
 
@@ -1434,12 +1511,27 @@ export default function FinanceAppPage() {
     setEditToAccount('');
     setEditCategory('');
     setEditComment('');
+    setEditDateTime('');
   };
 
   const handleSaveEdit = async () => {
     if (!userId || !editingOperation) return;
 
     setError(null);
+
+    if (!editDateTime) {
+      setError('Date is required');
+      return;
+    }
+    const editDate = parseDateTimeLocal(editDateTime);
+    if (Number.isNaN(editDate.getTime())) {
+      setError('Invalid date');
+      return;
+    }
+    if (isFutureDate(editDate)) {
+      setError('Date cannot be in the future');
+      return;
+    }
 
     const parsed = parseMoneyExpression(editAmount);
     if (!parsed.ok) {
@@ -1462,6 +1554,7 @@ export default function FinanceAppPage() {
           .update({
             amount,
             comment: editComment.trim() || null,
+            created_at: editDate.toISOString(),
           })
           .eq('id', editingOperation.id)
           .eq('user_id', userId);
@@ -1478,6 +1571,7 @@ export default function FinanceAppPage() {
           .update({
             amount,
             comment: editComment.trim() || null,
+            created_at: editDate.toISOString(),
           })
           .eq('transfer_id', editingOperation.id)
           .eq('user_id', userId);
@@ -1502,6 +1596,7 @@ export default function FinanceAppPage() {
             account_id: editAccount,
             category_id: editCategory || null,
             comment: editComment.trim() || null,
+            created_at: editDate.toISOString(),
           })
           .eq('id', editingOperation.id)
           .eq('user_id', userId);
@@ -1932,6 +2027,15 @@ export default function FinanceAppPage() {
                   </p>
                 </div>
                 <div>
+                  <label className="block text-xs font-medium text-neutral-700">Date &amp; time</label>
+                  <input
+                    type="datetime-local"
+                    value={incomeDateTime}
+                    onChange={(e) => setIncomeDateTime(e.target.value)}
+                    className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                  />
+                </div>
+                <div>
                   <label className="block text-xs font-medium text-neutral-700">To</label>
                     <select
                       value={accountIncome}
@@ -2006,6 +2110,15 @@ export default function FinanceAppPage() {
                   </p>
                 </div>
                 <div>
+                  <label className="block text-xs font-medium text-neutral-700">Date &amp; time</label>
+                  <input
+                    type="datetime-local"
+                    value={expenseDateTime}
+                    onChange={(e) => setExpenseDateTime(e.target.value)}
+                    className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                  />
+                </div>
+                <div>
                   <label className="block text-xs font-medium text-neutral-700">From</label>
                     <select
                       value={accountExpense}
@@ -2078,6 +2191,15 @@ export default function FinanceAppPage() {
                   <p className="mt-1 text-xs text-neutral-500">
                     You can enter expressions: 5+6-2, supports + - * / ( )
                   </p>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-neutral-700">Date &amp; time</label>
+                  <input
+                    type="datetime-local"
+                    value={transferDateTime}
+                    onChange={(e) => setTransferDateTime(e.target.value)}
+                    className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                  />
                 </div>
                 <div>
                   <label className="flex items-center gap-2">
@@ -3196,6 +3318,16 @@ export default function FinanceAppPage() {
                   <p className="mt-1 text-xs text-neutral-500">
                     You can enter expressions: 5+6-2, supports + - * / ( )
                   </p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-neutral-700">Date &amp; time</label>
+                  <input
+                    type="datetime-local"
+                    value={editDateTime}
+                    onChange={(e) => setEditDateTime(e.target.value)}
+                    className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                  />
                 </div>
 
                 {editingOperation.type === 'transfer' ? (
