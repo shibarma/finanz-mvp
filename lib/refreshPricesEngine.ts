@@ -173,6 +173,80 @@ async function fetchQuoteWithRetry(symbol: string, apiKey: string): Promise<Quot
   };
 }
 
+async function fetchCoinGeckoQuote(
+  coinId: string,
+  vsCurrency: string,
+): Promise<QuoteResult> {
+  const normalizedCoinId = coinId.trim().toLowerCase();
+  const normalizedVsCurrency = vsCurrency.trim().toLowerCase();
+
+  if (!normalizedCoinId || !normalizedVsCurrency) {
+    return {
+      ok: false,
+      status: 0,
+      reason: 'coinId and vsCurrency must be non-empty',
+    };
+  }
+
+  const url = `https://api.coingecko.com/api/v3/simple/price?ids=${encodeURIComponent(
+    normalizedCoinId,
+  )}&vs_currencies=${encodeURIComponent(normalizedVsCurrency)}`;
+
+  try {
+    const res = await fetch(url);
+
+    if (!res.ok) {
+      const bodyText = await res.text().catch(() => '');
+      return {
+        ok: false,
+        status: res.status,
+        reason: 'CoinGecko HTTP error',
+        body: bodyText.slice(0, 500),
+      };
+    }
+
+    let data: any;
+    try {
+      data = await res.json();
+    } catch {
+      const bodyText = await res.text().catch(() => '');
+      return {
+        ok: false,
+        status: 502,
+        reason: 'Failed to parse CoinGecko JSON',
+        body: bodyText.slice(0, 500),
+      };
+    }
+
+    const price = data?.[normalizedCoinId]?.[normalizedVsCurrency];
+    const fetchedAt: string = new Date().toISOString();
+
+    if (typeof price !== 'number' || !Number.isFinite(price) || price <= 0) {
+      return {
+        ok: false,
+        status: 502,
+        reason: 'Invalid or missing price from CoinGecko',
+        body: JSON.stringify(data).slice(0, 500),
+      };
+    }
+
+    return {
+      ok: true,
+      price,
+      fetched_at: fetchedAt,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      status: 0,
+      reason:
+        err instanceof Error
+          ? `Network or unexpected error while fetching CoinGecko quote: ${err.message}`
+          : 'Network or unexpected error while fetching CoinGecko quote',
+    };
+  }
+}
+
 function createAdminClient(): SupabaseClient {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -262,33 +336,53 @@ export async function refreshPricesEngine(
       continue;
     }
 
-    const symbol = providerSymbol.toUpperCase();
+    const provider = (instrument.provider || '').toString().toLowerCase();
+    const kind = (instrument.kind || '').toString().toLowerCase();
 
-    let quoteResult = quoteCache.get(symbol);
+    let quoteResult: QuoteResult | undefined;
+    let cacheKey: string;
 
-    if (!quoteResult) {
-      if (!finnhubApiKey) {
-        summary.skipped += 1;
-        summary.errors.push({
-          scope: 'quote',
-          position_id: position.id,
-          symbol: String(symbol),
-          reason: 'FINNHUB_API_KEY not configured',
-        });
-        continue;
+    if (provider === 'coingecko' && kind === 'crypto') {
+      const coinId = providerSymbol.toLowerCase();
+      const vsCurrency = ((position.quote_currency || 'EUR') as string).toLowerCase();
+      cacheKey = `coingecko:${coinId}:${vsCurrency}`;
+
+      quoteResult = quoteCache.get(cacheKey);
+
+      if (!quoteResult) {
+        quoteResult = await fetchCoinGeckoQuote(coinId, vsCurrency);
+        quoteCache.set(cacheKey, quoteResult);
       }
+    } else {
+      const symbol = providerSymbol.toUpperCase();
+      cacheKey = `finnhub:${symbol}`;
 
-      const now = Date.now();
-      if (lastQuoteRequestAt !== null) {
-        const elapsed = now - lastQuoteRequestAt;
-        if (elapsed < MIN_QUOTE_DELAY_MS) {
-          await sleep(MIN_QUOTE_DELAY_MS - elapsed);
+      quoteResult = quoteCache.get(cacheKey);
+
+      if (!quoteResult) {
+        if (!finnhubApiKey) {
+          summary.skipped += 1;
+          summary.errors.push({
+            scope: 'quote',
+            position_id: position.id,
+            symbol: String(symbol),
+            reason: 'FINNHUB_API_KEY not configured',
+          });
+          continue;
         }
-      }
 
-      lastQuoteRequestAt = Date.now();
-      quoteResult = await fetchQuoteWithRetry(symbol, finnhubApiKey);
-      quoteCache.set(symbol, quoteResult);
+        const now = Date.now();
+        if (lastQuoteRequestAt !== null) {
+          const elapsed = now - lastQuoteRequestAt;
+          if (elapsed < MIN_QUOTE_DELAY_MS) {
+            await sleep(MIN_QUOTE_DELAY_MS - elapsed);
+          }
+        }
+
+        lastQuoteRequestAt = Date.now();
+        quoteResult = await fetchQuoteWithRetry(symbol, finnhubApiKey);
+        quoteCache.set(cacheKey, quoteResult);
+      }
     }
 
     if (!quoteResult.ok) {
@@ -301,7 +395,7 @@ export async function refreshPricesEngine(
 
       const errorItem: RefreshError = {
         position_id: position.id,
-        symbol: String(symbol),
+        symbol: String(providerSymbol),
         status: quoteResult.status,
         reason: quoteResult.reason,
       };

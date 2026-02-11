@@ -3654,6 +3654,43 @@ export default function SetupPage() {
                               Currency:{' '}
                               <span className="font-medium">{pos.quote_currency}</span>
                             </span>
+                            <span>
+                              Price:{' '}
+                              {pos.last_price !== null && pos.last_price !== undefined ? (
+                                <>
+                                  <span className="font-medium">
+                                    {pos.quote_currency === 'EUR' ? '€' : '$'}
+                                    {pos.last_price.toFixed(2)}
+                                  </span>
+                                  {pos.quote_currency === 'USD' && fxRate && (
+                                    <span className="ml-1 text-neutral-500">
+                                      (≈ €{(pos.last_price * fxRate).toFixed(2)})
+                                    </span>
+                                  )}
+                                </>
+                              ) : (
+                                <span className="font-medium">—</span>
+                              )}
+                            </span>
+                            <span>
+                              Value:{' '}
+                              {pos.last_price !== null && pos.last_price !== undefined ? (
+                                <>
+                                  <span className="font-medium">
+                                    {pos.quote_currency === 'EUR' ? '€' : '$'}
+                                    {(pos.quantity * pos.last_price).toFixed(2)}
+                                  </span>
+                                  {pos.quote_currency === 'USD' && fxRate && (
+                                    <span className="ml-1 text-neutral-500">
+                                      (≈ €
+                                      {(pos.quantity * pos.last_price * fxRate).toFixed(2)})
+                                    </span>
+                                  )}
+                                </>
+                              ) : (
+                                <span className="font-medium">—</span>
+                              )}
+                            </span>
                             {pos.comment && (
                               <span className="col-span-2">
                                 Comment:{' '}

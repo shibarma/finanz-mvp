@@ -71,6 +71,8 @@ interface Transaction {
 interface InstrumentRef {
   provider_symbol?: string;
   display_symbol?: string;
+  kind?: string | null;
+  provider?: string | null;
 }
 
 interface PositionRow {
@@ -403,7 +405,9 @@ export default function StatsPage() {
       const [positionsRes, historyRes, fxRes] = await Promise.all([
         supabase
           .from('positions')
-          .select('id, user_id, broker_account_id, quote_currency, instrument_id, instruments(provider_symbol, display_symbol)')
+          .select(
+            'id, user_id, broker_account_id, quote_currency, instrument_id, instruments(provider_symbol, display_symbol, kind, provider)',
+          )
           .eq('user_id', uid),
         supabase
           .from('position_price_history')
@@ -506,7 +510,13 @@ export default function StatsPage() {
   }, [transactions, dateFrom, dateTo]);
 
   // Итоги за период — инвестиционные сделки (cashflow)
-  const investmentPeriodSummary = useMemo(() => {
+  const accountsById = useMemo(() => {
+    const map = new Map<string, Account>();
+    accounts.forEach((a) => map.set(a.id, a));
+    return map;
+  }, [accounts]);
+
+  const investmentPeriodSummaryStocks = useMemo(() => {
     if (!dateFrom || !dateTo) return { totalBuy: 0, totalSell: 0, netCashflow: 0 };
 
     const from = new Date(dateFrom);
@@ -518,6 +528,9 @@ export default function StatsPage() {
 
     transactions.forEach((tx) => {
       if (!tx.is_investment) return;
+      const account = accountsById.get(tx.account_id);
+      if (!account || account.kind !== 'broker') return;
+
       const txDate = new Date(tx.created_at);
       if (txDate >= from && txDate <= to) {
         if (tx.kind === 'expense') totalBuy += tx.amount;
@@ -530,7 +543,36 @@ export default function StatsPage() {
       totalSell,
       netCashflow: totalSell - totalBuy,
     };
-  }, [transactions, dateFrom, dateTo]);
+  }, [transactions, dateFrom, dateTo, accountsById]);
+
+  const investmentPeriodSummaryCrypto = useMemo(() => {
+    if (!dateFrom || !dateTo) return { totalBuy: 0, totalSell: 0, netCashflow: 0 };
+
+    const from = new Date(dateFrom);
+    const to = new Date(dateTo);
+    to.setHours(23, 59, 59, 999);
+
+    let totalBuy = 0;
+    let totalSell = 0;
+
+    transactions.forEach((tx) => {
+      if (!tx.is_investment) return;
+      const account = accountsById.get(tx.account_id);
+      if (!account || account.kind !== 'crypto') return;
+
+      const txDate = new Date(tx.created_at);
+      if (txDate >= from && txDate <= to) {
+        if (tx.kind === 'expense') totalBuy += tx.amount;
+        else if (tx.kind === 'income') totalSell += tx.amount;
+      }
+    });
+
+    return {
+      totalBuy,
+      totalSell,
+      netCashflow: totalSell - totalBuy,
+    };
+  }, [transactions, dateFrom, dateTo, accountsById]);
 
   // Вычисляем балансы по дням для всех счетов
   const allAccountsDailyBalances = useMemo(() => {
@@ -919,6 +961,23 @@ export default function StatsPage() {
     dateTo,
   ]);
 
+  const getInstrumentKind = (pos: PositionRow): string | null => {
+    const inst = pos.instruments;
+    if (!inst) return null;
+    const i = Array.isArray(inst) ? inst[0] : inst;
+    return (i as any)?.kind ?? null;
+  };
+
+  const investPositions = useMemo(
+    () => positions.filter((p) => getInstrumentKind(p)?.toLowerCase() !== 'crypto'),
+    [positions],
+  );
+
+  const cryptoPositions = useMemo(
+    () => positions.filter((p) => getInstrumentKind(p)?.toLowerCase() === 'crypto'),
+    [positions],
+  );
+
   // Invest chart: All brokers (EUR total) или по выбранному broker (EUR или USD+EUR dual)
   // Carry forward: для каждой даты D берём последний известный snapshot по каждой позиции (captured_date <= D)
   const investChartData = useMemo(() => {
@@ -987,8 +1046,8 @@ export default function StatsPage() {
     const brokerCurrency = (broker?.currency || 'EUR').toUpperCase();
     const positionsToUse =
       selectedBrokerId !== ''
-        ? positions.filter((p) => p.broker_account_id === selectedBrokerId)
-        : positions;
+        ? investPositions.filter((p) => p.broker_account_id === selectedBrokerId)
+        : investPositions;
 
     if (selectedBrokerId === '') {
       const data = days.map((day) => {
@@ -1063,10 +1122,10 @@ export default function StatsPage() {
     return { mode: 'broker_usd' as const, data, fxNotLoadedWarning, investmentWarning, brokerName };
   }, [selectedBrokerId, dateFrom, dateTo, historyRows, fxRows, positions, brokers, accounts]);
 
-  // Unique instruments (dedupe by instrument_id), for Instrument price trend dropdown
+  // Unique instruments (dedupe by instrument_id), for Instrument price trend dropdown (non-crypto)
   const uniqueInstruments = useMemo(() => {
     const map = new Map<string, { id: string; label: string; currency: string }>();
-    for (const pos of positions) {
+    for (const pos of investPositions) {
       const instId = pos.instrument_id;
       if (!instId) continue;
       if (map.has(instId)) continue;
@@ -1080,7 +1139,7 @@ export default function StatsPage() {
       map.set(instId, { id: instId, label: `${sym} (${curr})`, currency: curr });
     }
     return Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label));
-  }, [positions]);
+  }, [investPositions]);
 
   // Instrument price trend chart data: price per unit for selected instrument
   const instrumentPriceTrendData = useMemo(() => {
@@ -1088,7 +1147,7 @@ export default function StatsPage() {
       return { data: [] as Array<{ date: string; price: number | null }>, hasData: false };
     }
 
-    const positionIds = positions
+    const positionIds = investPositions
       .filter((p) => p.instrument_id === selectedInstrumentId)
       .map((p) => p.id);
     if (positionIds.length === 0) {
@@ -1148,10 +1207,282 @@ export default function StatsPage() {
 
     const hasData = data.some((d) => d.price !== null);
     return { data, hasData };
-  }, [dateFrom, dateTo, selectedInstrumentId, positions, historyRows]);
+  }, [dateFrom, dateTo, selectedInstrumentId, investPositions, historyRows]);
 
   const instrumentCurrency =
     uniqueInstruments.find((i) => i.id === selectedInstrumentId)?.currency ?? 'EUR';
+
+  // Crypto portfolio trend (all crypto accounts or specific crypto account)
+  const cryptoAccounts = useMemo(
+    () => accounts.filter((a) => a.kind === 'crypto'),
+    [accounts],
+  );
+
+  const [selectedCryptoAccountId, setSelectedCryptoAccountId] = useState<string>('');
+
+  const cryptoPortfolioChartData = useMemo(() => {
+    if (!dateFrom || !dateTo) {
+      return {
+        mode: 'all' as const,
+        data: [] as Array<{ date: string; valueEur?: number; valueUsd?: number }>,
+        fxNotLoadedWarning: false,
+        accountName: null as string | null,
+        accountCurrency: null as string | null,
+      };
+    }
+
+    const from = new Date(dateFrom);
+    const to = new Date(dateTo);
+    to.setHours(23, 59, 59, 999);
+
+    const days: string[] = [];
+    const currentDay = new Date(from);
+    while (currentDay <= to) {
+      days.push(currentDay.toISOString().split('T')[0]);
+      currentDay.setDate(currentDay.getDate() + 1);
+    }
+
+    const historyByPosition = new Map<string, HistoryRow[]>();
+    for (const row of historyRows) {
+      const arr = historyByPosition.get(row.position_id) || [];
+      arr.push(row);
+      historyByPosition.set(row.position_id, arr);
+    }
+    for (const arr of historyByPosition.values()) {
+      arr.sort((a, b) => a.captured_date.localeCompare(b.captured_date));
+    }
+
+    const getLatestForPosition = (positionId: string, d: string): HistoryRow | null => {
+      const arr = historyByPosition.get(positionId);
+      if (!arr || arr.length === 0) return null;
+      let lo = 0;
+      let hi = arr.length - 1;
+      if (arr[0].captured_date > d) return null;
+      while (lo < hi) {
+        const mid = Math.ceil((lo + hi) / 2);
+        if (arr[mid].captured_date <= d) lo = mid;
+        else hi = mid - 1;
+      }
+      return arr[lo].captured_date <= d ? arr[lo] : null;
+    };
+
+    const fxSorted = [...fxRows].sort((a, b) => a.captured_date.localeCompare(b.captured_date));
+    const latestFxOverall = fxSorted.length > 0 ? fxSorted[fxSorted.length - 1].rate : null;
+    const getFxRate = (d: string): number | null => {
+      const candidates = fxSorted.filter((f) => f.captured_date <= d);
+      if (candidates.length > 0) return candidates[candidates.length - 1].rate;
+      return latestFxOverall;
+    };
+
+    let fxNotLoadedWarning = false;
+
+    const account =
+      selectedCryptoAccountId !== ''
+        ? cryptoAccounts.find((a) => a.id === selectedCryptoAccountId)
+        : null;
+    const accountName = account?.name ?? null;
+    const accountCurrency = (account?.currency || null)?.toUpperCase() ?? null;
+
+    const positionsToUse =
+      selectedCryptoAccountId !== ''
+        ? cryptoPositions.filter((p) => p.broker_account_id === selectedCryptoAccountId)
+        : cryptoPositions;
+
+    // All crypto accounts: агрегируем только в EUR
+    if (selectedCryptoAccountId === '') {
+      const data = days.map((day) => {
+        let totalEur = 0;
+        for (const pos of positionsToUse) {
+          const row = getLatestForPosition(pos.id, day);
+          if (!row) continue;
+          const qty = row.quantity_snapshot ?? 0;
+          const rawValue = row.price * qty;
+          const curr = (row.currency || '').toUpperCase();
+          if (curr === 'EUR') {
+            totalEur += rawValue;
+          } else if (curr === 'USD') {
+            const rate = getFxRate(day);
+            if (rate === null) {
+              fxNotLoadedWarning = true;
+            } else {
+              totalEur += rawValue * rate;
+            }
+          }
+        }
+        return {
+          date: new Date(day).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' }),
+          valueEur: totalEur,
+        };
+      });
+
+      return {
+        mode: 'all' as const,
+        data,
+        fxNotLoadedWarning,
+        accountName: null,
+        accountCurrency: null,
+      };
+    }
+
+    // Конкретный crypto account в EUR
+    if (accountCurrency === 'EUR') {
+      const data = days.map((day) => {
+        let totalEur = 0;
+        for (const pos of positionsToUse) {
+          const row = getLatestForPosition(pos.id, day);
+          if (!row) continue;
+          const curr = (row.currency || '').toUpperCase();
+          if (curr !== 'EUR') {
+            continue;
+          }
+          const qty = row.quantity_snapshot ?? 0;
+          totalEur += row.price * qty;
+        }
+        return {
+          date: new Date(day).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' }),
+          valueEur: totalEur,
+        };
+      });
+
+      return {
+        mode: 'eur' as const,
+        data,
+        fxNotLoadedWarning,
+        accountName,
+        accountCurrency,
+      };
+    }
+
+    // Конкретный crypto account в USD: строим USD + EUR (dual)
+    const data = days.map((day) => {
+      let valueUsd = 0;
+      for (const pos of positionsToUse) {
+        const row = getLatestForPosition(pos.id, day);
+        if (!row) continue;
+        const curr = (row.currency || '').toUpperCase();
+        if (curr !== 'USD') {
+          continue;
+        }
+        const qty = row.quantity_snapshot ?? 0;
+        valueUsd += row.price * qty;
+      }
+      const rate = getFxRate(day);
+      const valueEur = rate !== null ? valueUsd * rate : 0;
+      if (valueUsd > 0 && rate === null) {
+        fxNotLoadedWarning = true;
+      }
+      return {
+        date: new Date(day).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' }),
+        valueUsd,
+        valueEur,
+      };
+    });
+
+    return {
+      mode: 'usd_dual' as const,
+      data,
+      fxNotLoadedWarning,
+      accountName,
+      accountCurrency,
+    };
+  }, [dateFrom, dateTo, historyRows, fxRows, cryptoPositions, cryptoAccounts, selectedCryptoAccountId]);
+
+  // Crypto instrument price trend (per-unit price for crypto instruments only)
+  const uniqueCryptoInstruments = useMemo(() => {
+    const map = new Map<string, { id: string; label: string; currency: string }>();
+    for (const pos of cryptoPositions) {
+      const instId = pos.instrument_id;
+      if (!instId) continue;
+      if (map.has(instId)) continue;
+      const inst = pos.instruments;
+      const sym = inst
+        ? (Array.isArray(inst) ? inst[0] : inst)?.display_symbol ||
+          (Array.isArray(inst) ? inst[0] : inst)?.provider_symbol ||
+          '—'
+        : '—';
+      const curr = (pos.quote_currency || 'EUR').toUpperCase();
+      map.set(instId, { id: instId, label: `${sym} (${curr})`, currency: curr });
+    }
+    return Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label));
+  }, [cryptoPositions]);
+
+  const [selectedCryptoInstrumentId, setSelectedCryptoInstrumentId] = useState<string>('');
+
+  const cryptoInstrumentPriceTrendData = useMemo(() => {
+    if (!dateFrom || !dateTo || !selectedCryptoInstrumentId) {
+      return { data: [] as Array<{ date: string; price: number | null }>, hasData: false };
+    }
+
+    const positionIds = cryptoPositions
+      .filter((p) => p.instrument_id === selectedCryptoInstrumentId)
+      .map((p) => p.id);
+    if (positionIds.length === 0) {
+      return { data: [], hasData: false };
+    }
+
+    const from = new Date(dateFrom);
+    const to = new Date(dateTo);
+    to.setHours(23, 59, 59, 999);
+
+    const days: string[] = [];
+    const currentDay = new Date(from);
+    while (currentDay <= to) {
+      days.push(currentDay.toISOString().split('T')[0]);
+      currentDay.setDate(currentDay.getDate() + 1);
+    }
+
+    const historyByPosition = new Map<string, HistoryRow[]>();
+    for (const row of historyRows) {
+      if (!positionIds.includes(row.position_id)) continue;
+      const arr = historyByPosition.get(row.position_id) || [];
+      arr.push(row);
+      historyByPosition.set(row.position_id, arr);
+    }
+    for (const arr of historyByPosition.values()) {
+      arr.sort((a, b) => a.captured_date.localeCompare(b.captured_date));
+    }
+
+    const getLatestForPosition = (positionId: string, d: string): HistoryRow | null => {
+      const arr = historyByPosition.get(positionId);
+      if (!arr || arr.length === 0) return null;
+      let lo = 0;
+      let hi = arr.length - 1;
+      if (arr[0].captured_date > d) return null;
+      while (lo < hi) {
+        const mid = Math.ceil((lo + hi) / 2);
+        if (arr[mid].captured_date <= d) lo = mid;
+        else hi = mid - 1;
+      }
+      return arr[lo].captured_date <= d ? arr[lo] : null;
+    };
+
+    const data: Array<{ date: string; price: number | null }> = [];
+    for (const day of days) {
+      const candidates: HistoryRow[] = [];
+      for (const pid of positionIds) {
+        const row = getLatestForPosition(pid, day);
+        if (row) candidates.push(row);
+      }
+      if (candidates.length === 0) {
+        data.push({
+          date: new Date(day).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' }),
+          price: null,
+        });
+      } else {
+        const best = candidates.reduce((a, b) => (a.captured_date >= b.captured_date ? a : b));
+        data.push({
+          date: new Date(day).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' }),
+          price: best.price,
+        });
+      }
+    }
+
+    const hasData = data.some((d) => d.price !== null);
+    return { data, hasData };
+  }, [dateFrom, dateTo, selectedCryptoInstrumentId, cryptoPositions, historyRows]);
+
+  const cryptoInstrumentCurrency =
+    uniqueCryptoInstruments.find((i) => i.id === selectedCryptoInstrumentId)?.currency ?? 'EUR';
 
   useEffect(() => {
     if (uniqueInstruments.length === 0) {
@@ -1160,6 +1491,17 @@ export default function StatsPage() {
       setSelectedInstrumentId(uniqueInstruments[0]!.id);
     }
   }, [uniqueInstruments, selectedInstrumentId]);
+
+  useEffect(() => {
+    if (uniqueCryptoInstruments.length === 0) {
+      setSelectedCryptoInstrumentId('');
+    } else if (
+      !selectedCryptoInstrumentId ||
+      !uniqueCryptoInstruments.some((i) => i.id === selectedCryptoInstrumentId)
+    ) {
+      setSelectedCryptoInstrumentId(uniqueCryptoInstruments[0]!.id);
+    }
+  }, [uniqueCryptoInstruments, selectedCryptoInstrumentId]);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -1324,28 +1666,64 @@ export default function StatsPage() {
           <h2 className="mb-4 text-lg font-semibold text-neutral-900">
             Period summary — investment trades (cashflow)
           </h2>
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-4">
+          <div className="grid gap-4 md:grid-cols-2">
             <div>
-              <p className="text-xs text-neutral-600">Total Buy</p>
-              <p className="text-2xl font-semibold text-red-700">
-                {formatMoney(investmentPeriodSummary.totalBuy)}
-              </p>
+              <h3 className="mb-2 text-sm font-semibold text-neutral-900">Stocks / ETFs</h3>
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-4">
+                <div>
+                  <p className="text-xs text-neutral-600">Total Buy</p>
+                  <p className="text-2xl font-semibold text-red-700">
+                    {formatMoney(investmentPeriodSummaryStocks.totalBuy)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-neutral-600">Total Sell</p>
+                  <p className="text-2xl font-semibold text-emerald-700">
+                    {formatMoney(investmentPeriodSummaryStocks.totalSell)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-neutral-600">Net cashflow</p>
+                  <p
+                    className={`text-2xl font-semibold ${
+                      investmentPeriodSummaryStocks.netCashflow >= 0
+                        ? 'text-emerald-700'
+                        : 'text-red-700'
+                    }`}
+                  >
+                    {formatMoney(investmentPeriodSummaryStocks.netCashflow)}
+                  </p>
+                </div>
+              </div>
             </div>
             <div>
-              <p className="text-xs text-neutral-600">Total Sell</p>
-              <p className="text-2xl font-semibold text-emerald-700">
-                {formatMoney(investmentPeriodSummary.totalSell)}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs text-neutral-600">Net cashflow</p>
-              <p
-                className={`text-2xl font-semibold ${
-                  investmentPeriodSummary.netCashflow >= 0 ? 'text-emerald-700' : 'text-red-700'
-                }`}
-              >
-                {formatMoney(investmentPeriodSummary.netCashflow)}
-              </p>
+              <h3 className="mb-2 text-sm font-semibold text-neutral-900">Crypto</h3>
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-4">
+                <div>
+                  <p className="text-xs text-neutral-600">Total Buy</p>
+                  <p className="text-2xl font-semibold text-red-700">
+                    {formatMoney(investmentPeriodSummaryCrypto.totalBuy)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-neutral-600">Total Sell</p>
+                  <p className="text-2xl font-semibold text-emerald-700">
+                    {formatMoney(investmentPeriodSummaryCrypto.totalSell)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-neutral-600">Net cashflow</p>
+                  <p
+                    className={`text-2xl font-semibold ${
+                      investmentPeriodSummaryCrypto.netCashflow >= 0
+                        ? 'text-emerald-700'
+                        : 'text-red-700'
+                    }`}
+                  >
+                    {formatMoney(investmentPeriodSummaryCrypto.netCashflow)}
+                  </p>
+                </div>
+              </div>
             </div>
           </div>
         </section>
@@ -1867,6 +2245,120 @@ export default function StatsPage() {
           )}
         </section>
 
+        {/* Crypto portfolio trend */}
+        <section className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm md:p-6">
+          <h2 className="mb-4 text-lg font-semibold text-neutral-900">Crypto portfolio</h2>
+          <div className="mb-4">
+            <label className="block text-xs font-medium text-neutral-700">Crypto account</label>
+            <select
+              value={selectedCryptoAccountId}
+              onChange={(e) => setSelectedCryptoAccountId(e.target.value)}
+              className="mt-1 rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+            >
+              <option value="">All crypto accounts</option>
+              {cryptoAccounts.map((acc) => (
+                <option key={acc.id} value={acc.id}>
+                  {acc.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          {cryptoPortfolioChartData.fxNotLoadedWarning && (
+            <div className="mb-4 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              FX not loaded for some dates
+            </div>
+          )}
+          {cryptoPortfolioChartData.data.length > 0 ? (
+            <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-4">
+              <h3 className="mb-3 text-sm font-semibold text-neutral-900">
+                {cryptoPortfolioChartData.mode === 'usd_dual'
+                  ? 'Crypto total (USD & EUR)'
+                  : 'Crypto total (EUR)'}
+                {cryptoPortfolioChartData.accountName
+                  ? ` — ${cryptoPortfolioChartData.accountName}`
+                  : ''}
+              </h3>
+              {cryptoPortfolioChartData.mode === 'usd_dual' ? (
+                <ResponsiveContainer width="100%" height={200}>
+                  <LineChart data={cryptoPortfolioChartData.data}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="date" />
+                    <YAxis
+                      yAxisId="left"
+                      tickFormatter={(v) => formatMoneyUSD(v as number)}
+                      domain={['auto', 'auto']}
+                      width={80}
+                    />
+                    <YAxis
+                      yAxisId="right"
+                      orientation="right"
+                      tickFormatter={(v) => formatMoney(v as number)}
+                      domain={['auto', 'auto']}
+                      width={80}
+                    />
+                    <Tooltip
+                      formatter={(value, name) => {
+                        if (value == null || !Number.isFinite(Number(value))) return '—';
+                        return name === 'Crypto (USD)'
+                          ? formatMoneyUSD(Number(value))
+                          : formatMoney(Number(value));
+                      }}
+                      labelStyle={{ color: '#171717' }}
+                    />
+                    <Legend />
+                    <Line
+                      yAxisId="left"
+                      type="monotone"
+                      dataKey="valueUsd"
+                      stroke="#2563eb"
+                      strokeWidth={2}
+                      dot={{ r: 2 }}
+                      name="Crypto (USD)"
+                    />
+                    <Line
+                      yAxisId="right"
+                      type="monotone"
+                      dataKey="valueEur"
+                      stroke="#16a34a"
+                      strokeWidth={2}
+                      dot={{ r: 2 }}
+                      name="Crypto (EUR)"
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              ) : (
+                <ResponsiveContainer width="100%" height={200}>
+                  <LineChart data={cryptoPortfolioChartData.data}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="date" />
+                    <YAxis
+                      tickFormatter={(v) => formatMoney(v as number)}
+                      domain={['auto', 'auto']}
+                      width={80}
+                    />
+                    <Tooltip
+                      formatter={(value: number) => formatMoney(value)}
+                      labelStyle={{ color: '#171717' }}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="valueEur"
+                      stroke="#171717"
+                      strokeWidth={2}
+                      dot={{ r: 2 }}
+                      name="€"
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+          ) : (
+            <div className="flex min-h-[200px] items-center justify-center rounded-lg border border-neutral-200 bg-neutral-50 p-8">
+              <p className="text-sm text-neutral-500">No crypto data за выбранный период</p>
+            </div>
+          )}
+        </section>
+
         {/* Instrument price trend */}
         <section className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm md:p-6">
           <h2 className="mb-4 text-lg font-semibold text-neutral-900">Instrument price trend</h2>
@@ -1928,6 +2420,74 @@ export default function StatsPage() {
               </ResponsiveContainer>
               <p className="mt-2 text-xs text-neutral-500">
                 Shows last known price per day (not multiplied by quantity).
+              </p>
+            </>
+          )}
+        </section>
+
+        {/* Crypto instrument price trend */}
+        <section className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm md:p-6">
+          <h2 className="mb-4 text-lg font-semibold text-neutral-900">Crypto asset price trend</h2>
+          <div className="mb-4">
+            <label className="block text-xs font-medium text-neutral-700">Crypto asset</label>
+            <select
+              value={selectedCryptoInstrumentId}
+              onChange={(e) => setSelectedCryptoInstrumentId(e.target.value)}
+              className="mt-1 rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+            >
+              {uniqueCryptoInstruments.length === 0 ? (
+                <option value="">No crypto instruments yet</option>
+              ) : (
+                uniqueCryptoInstruments.map((i) => (
+                  <option key={i.id} value={i.id}>
+                    {i.label}
+                  </option>
+                ))
+              )}
+            </select>
+          </div>
+          {uniqueCryptoInstruments.length === 0 ? (
+            <p className="text-sm text-neutral-600">No crypto instruments yet</p>
+          ) : !cryptoInstrumentPriceTrendData.hasData ? (
+            <p className="text-sm text-neutral-600">No price history for selected crypto asset</p>
+          ) : (
+            <>
+              <ResponsiveContainer width="100%" height={200}>
+                <LineChart data={cryptoInstrumentPriceTrendData.data}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="date" />
+                  <YAxis
+                    tickFormatter={(v) =>
+                      cryptoInstrumentCurrency === 'USD'
+                        ? formatMoneyUSD(Number(v))
+                        : formatMoney(Number(v))
+                    }
+                    domain={['auto', 'auto']}
+                    width={80}
+                  />
+                  <Tooltip
+                    formatter={(value: unknown, _name: string) =>
+                      typeof value === 'number'
+                        ? cryptoInstrumentCurrency === 'USD'
+                          ? formatMoneyUSD(value)
+                          : formatMoney(value)
+                        : String(value ?? '')
+                    }
+                    labelStyle={{ color: '#171717' }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="price"
+                    stroke="#171717"
+                    strokeWidth={2}
+                    dot={{ r: 2 }}
+                    connectNulls={false}
+                    name="Price per unit"
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+              <p className="mt-2 text-xs text-neutral-500">
+                Shows last known crypto price per day (not multiplied by quantity).
               </p>
             </>
           )}

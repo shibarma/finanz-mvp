@@ -27,6 +27,7 @@ interface Account {
 interface InstrumentRef {
   provider_symbol: string | null;
   display_symbol: string | null;
+  kind?: string | null;
 }
 
 interface PositionMain {
@@ -280,6 +281,7 @@ export default function FinanceAppPage() {
   const [investFee, setInvestFee] = useState('0');
   const [investComment, setInvestComment] = useState('');
   const [submittingInvest, setSubmittingInvest] = useState(false);
+  const [investMode, setInvestMode] = useState<'Stocks' | 'Crypto'>('Stocks');
 
   const accountsById = useMemo(() => {
     const map = new Map<string, Account>();
@@ -305,13 +307,51 @@ export default function FinanceAppPage() {
     () => accounts.filter((a) => a.kind === 'broker'),
     [accounts],
   );
+  const cryptoAccounts = useMemo(
+    () => accounts.filter((a) => a.kind === 'crypto'),
+    [accounts],
+  );
+  const cryptoAccountIds = useMemo(
+    () => new Set(accounts.filter((a) => a.kind === 'crypto').map((a) => a.id)),
+    [accounts],
+  );
+  const brokerAccountIds = useMemo(
+    () => new Set(brokerAccounts.map((a) => a.id)),
+    [brokerAccounts],
+  );
   const visibleAccounts = useMemo(
     () => accounts.filter((a) => !hiddenAccountIds.has(a.id)),
     [accounts, hiddenAccountIds],
   );
+  const getPositionInstrumentKind = (position: PositionMain): string | null => {
+    const inst = position.instruments;
+    if (!inst) return null;
+    const i = Array.isArray(inst) ? inst[0] : inst;
+    return (i as any)?.kind ?? null;
+  };
+
   const positionsByBroker = useMemo(
-    () => (investBroker ? positions.filter((p) => p.broker_account_id === investBroker) : []),
-    [positions, investBroker],
+    () =>
+      investBroker && investMode === 'Stocks'
+        ? positions.filter(
+            (p) =>
+              p.broker_account_id === investBroker &&
+              getPositionInstrumentKind(p)?.toLowerCase() !== 'crypto',
+          )
+        : [],
+    [positions, investBroker, investMode],
+  );
+
+  const positionsByCryptoAccount = useMemo(
+    () =>
+      investBroker && investMode === 'Crypto'
+        ? positions.filter(
+            (p) =>
+              p.broker_account_id === investBroker &&
+              getPositionInstrumentKind(p)?.toLowerCase() === 'crypto',
+          )
+        : [],
+    [positions, investBroker, investMode],
   );
 
   // Stable keys for Set deps in useEffect
@@ -732,7 +772,7 @@ export default function FinanceAppPage() {
   const loadPositions = async (uid: string) => {
     const { data, error: fetchError } = await supabase
       .from('positions')
-      .select('id, user_id, broker_account_id, instrument_id, quote_currency, quantity, comment, last_price, last_price_at, created_at, instruments(provider_symbol, display_symbol)')
+      .select('id, user_id, broker_account_id, instrument_id, quote_currency, quantity, comment, last_price, last_price_at, created_at, instruments(provider_symbol, display_symbol, kind)')
       .eq('user_id', uid);
 
     if (fetchError) {
@@ -815,6 +855,7 @@ export default function FinanceAppPage() {
     let cashEur = 0;
     let brokerCashEur = 0;
     let cryptoCashEur = 0;
+    let cryptoAssetsEur = 0;
     let investEur = 0;
     let usdExcludedFromTotals = false;
 
@@ -876,7 +917,7 @@ export default function FinanceAppPage() {
       }
     });
 
-    // Инвестиции: сумма quantity * last_price по всем позициям
+    // Инвестиции: сумма quantity * last_price
     positions.forEach((position) => {
       const price = position.last_price ?? 0;
       if (!price) {
@@ -892,7 +933,11 @@ export default function FinanceAppPage() {
         return;
       }
 
-      investEur += eurValue;
+      if (cryptoAccountIds.has(position.broker_account_id)) {
+        cryptoAssetsEur += eurValue;
+      } else if (brokerAccountIds.has(position.broker_account_id)) {
+        investEur += eurValue;
+      }
     });
 
     return {
@@ -902,10 +947,11 @@ export default function FinanceAppPage() {
       cashEur,
       brokerCashEur,
       cryptoCashEur,
+      cryptoAssetsEur,
       investEur,
       usdExcludedFromTotals,
     };
-  }, [accountBalances, accountsById, fxRate, positions]);
+  }, [accountBalances, accountsById, fxRate, positions, cryptoAccountIds, brokerAccountIds]);
 
   const handleIncome = async () => {
     if (!userId) return;
@@ -2370,14 +2416,56 @@ export default function FinanceAppPage() {
               <h3 className="text-sm font-semibold text-neutral-900">Invest Buy / Sell</h3>
               <div className="space-y-2">
                 <div>
-                  <label className="block text-xs font-medium text-neutral-700">Broker</label>
+                  <span className="block text-xs font-medium text-neutral-700">Mode</span>
+                  <div className="mt-1 inline-flex rounded-lg border border-neutral-300 bg-neutral-50 p-0.5 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setInvestMode('Stocks');
+                        setInvestBroker('');
+                        setInvestInstrument('');
+                      }}
+                      className={`px-3 py-1 rounded-md ${
+                        investMode === 'Stocks'
+                          ? 'bg-white text-neutral-900 shadow-sm'
+                          : 'text-neutral-600'
+                      }`}
+                    >
+                      Stocks
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setInvestMode('Crypto');
+                        setInvestBroker('');
+                        setInvestInstrument('');
+                      }}
+                      className={`px-3 py-1 rounded-md ${
+                        investMode === 'Crypto'
+                          ? 'bg-white text-neutral-900 shadow-sm'
+                          : 'text-neutral-600'
+                      }`}
+                    >
+                      Crypto
+                    </button>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-neutral-700">
+                    {investMode === 'Stocks' ? 'Broker account' : 'Crypto account'}
+                  </label>
                   <select
                     value={investBroker}
-                    onChange={(e) => setInvestBroker(e.target.value)}
+                    onChange={(e) => {
+                      setInvestBroker(e.target.value);
+                      setInvestInstrument('');
+                    }}
                     className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
                   >
-                    <option value="">Select broker</option>
-                    {brokerAccounts.map((acc) => (
+                    <option value="">
+                      {investMode === 'Stocks' ? 'Select broker' : 'Select crypto account'}
+                    </option>
+                    {(investMode === 'Stocks' ? brokerAccounts : cryptoAccounts).map((acc) => (
                       <option key={acc.id} value={acc.id}>
                         {acc.name} {getCurrencySymbol(acc.currency)}
                       </option>
@@ -2385,19 +2473,25 @@ export default function FinanceAppPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-neutral-700">Instrument</label>
+                  <label className="block text-xs font-medium text-neutral-700">
+                    {investMode === 'Stocks' ? 'Instrument' : 'Crypto asset'}
+                  </label>
                   <select
                     value={investInstrument}
                     onChange={(e) => setInvestInstrument(e.target.value)}
                     disabled={!investBroker}
                     className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200 disabled:bg-neutral-100"
                   >
-                    <option value="">Select instrument</option>
-                    {positionsByBroker.map((pos) => (
-                      <option key={pos.id} value={pos.id}>
-                        {getPositionSymbol(pos)} (qty: {pos.quantity})
-                      </option>
-                    ))}
+                    <option value="">
+                      {investMode === 'Stocks' ? 'Select instrument' : 'Select crypto asset'}
+                    </option>
+                    {(investMode === 'Stocks' ? positionsByBroker : positionsByCryptoAccount).map(
+                      (pos) => (
+                        <option key={pos.id} value={pos.id}>
+                          {getPositionSymbol(pos)} (qty: {pos.quantity})
+                        </option>
+                      ),
+                    )}
                   </select>
                 </div>
                 <div>
@@ -2677,6 +2771,12 @@ export default function FinanceAppPage() {
               <p className="text-xs text-neutral-600">Crypto (EUR)</p>
               <p className="text-2xl font-semibold text-neutral-900">
                 €{totals.cryptoCashEur.toFixed(2)}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-neutral-600">Crypto assets (EUR)</p>
+              <p className="text-2xl font-semibold text-neutral-900">
+                €{totals.cryptoAssetsEur.toFixed(2)}
               </p>
             </div>
             <div>
