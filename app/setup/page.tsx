@@ -211,6 +211,18 @@ export default function SetupPage() {
   const [cryptoName, setCryptoName] = useState('');
   const [cryptoQuantity, setCryptoQuantity] = useState('');
   const [cryptoComment, setCryptoComment] = useState('');
+  const [editingCryptoPositionId, setEditingCryptoPositionId] = useState<string | null>(
+    null,
+  );
+  const [editCryptoPositionQuantity, setEditCryptoPositionQuantity] = useState('');
+  const [editCryptoPositionComment, setEditCryptoPositionComment] = useState('');
+  const [cryptoPositionEditSubmitting, setCryptoPositionEditSubmitting] = useState(false);
+  const [cryptoPositionEditError, setCryptoPositionEditError] = useState<string | null>(
+    null,
+  );
+  const [cryptoPositionDeleteError, setCryptoPositionDeleteError] = useState<
+    string | null
+  >(null);
 
   // Budgets
   const [budgets, setBudgets] = useState<Budget[]>([]);
@@ -1857,6 +1869,48 @@ export default function SetupPage() {
       const normalizedCoinId = cryptoCoinId.trim().toLowerCase();
       const displaySymbol = cryptoDisplaySymbol.trim().toUpperCase();
       const name = cryptoName.trim() !== '' ? cryptoName.trim() : null;
+      const vsCurrency = (cryptoAccount.currency || 'EUR').toLowerCase();
+
+      // Fetch price from CoinGecko before creating instrument/position
+      let quoteData: any;
+      try {
+        const resp = await fetch(
+          `/api/market/crypto-quote?coinId=${encodeURIComponent(
+            normalizedCoinId,
+          )}&vsCurrency=${encodeURIComponent(vsCurrency)}`,
+        );
+        try {
+          quoteData = await resp.json();
+        } catch {
+          setCryptoPositionSubmitting(false);
+          setCryptoPositionFormError('Failed to get price from CoinGecko. Try again later.');
+          return;
+        }
+        if (
+          !resp.ok ||
+          !quoteData?.ok ||
+          typeof quoteData.price !== 'number' ||
+          !Number.isFinite(quoteData.price) ||
+          quoteData.price <= 0
+        ) {
+          setCryptoPositionSubmitting(false);
+          if (quoteData?.reason === 'Coin not found' || resp.status === 404) {
+            setCryptoPositionFormError('Crypto asset not found on CoinGecko. Please check coin id.');
+          } else {
+            setCryptoPositionFormError('Failed to get price from CoinGecko. Try again later.');
+          }
+          return;
+        }
+      } catch (fetchErr) {
+        setCryptoPositionSubmitting(false);
+        setCryptoPositionFormError(
+          fetchErr instanceof Error ? fetchErr.message : 'Failed to get price from CoinGecko.',
+        );
+        return;
+      }
+
+      const cgPrice: number = quoteData.price;
+      const fetchedAt: string = (quoteData.fetched_at as string) || new Date().toISOString();
 
       // Find or create crypto instrument
       const { data: existingInstrument, error: findError } = await supabase
@@ -1913,6 +1967,8 @@ export default function SetupPage() {
         quote_currency: cryptoAccount.currency,
         quantity: quantityNum,
         comment: cryptoComment.trim() || null,
+        last_price: cgPrice,
+        last_price_at: fetchedAt,
       });
 
       if (positionError) {
@@ -1921,6 +1977,7 @@ export default function SetupPage() {
         return;
       }
 
+      // Clear form only on success
       setCryptoCoinId('');
       setCryptoDisplaySymbol('');
       setCryptoName('');
@@ -1935,6 +1992,74 @@ export default function SetupPage() {
         err instanceof Error ? err.message : 'Failed to create crypto position',
       );
     }
+  };
+
+  const startEditCryptoPosition = (position: PositionWithInstrument) => {
+    setEditingCryptoPositionId(position.id);
+    setEditCryptoPositionQuantity(position.quantity.toString());
+    setEditCryptoPositionComment(position.comment || '');
+    setCryptoPositionEditError(null);
+  };
+
+  const cancelEditCryptoPosition = () => {
+    setEditingCryptoPositionId(null);
+    setEditCryptoPositionQuantity('');
+    setEditCryptoPositionComment('');
+    setCryptoPositionEditError(null);
+  };
+
+  const handleUpdateCryptoPosition = async () => {
+    if (!editingCryptoPositionId) return;
+
+    setCryptoPositionEditError(null);
+
+    const parsed = parseMoneyExpression(editCryptoPositionQuantity);
+    if (!parsed.ok) {
+      setCryptoPositionEditError(parsed.error);
+      return;
+    }
+    const quantityNum = parsed.value;
+    if (quantityNum < 0) {
+      setCryptoPositionEditError('Quantity cannot be negative.');
+      return;
+    }
+
+    setCryptoPositionEditSubmitting(true);
+
+    const { error } = await supabase
+      .from('positions')
+      .update({
+        quantity: quantityNum,
+        comment: editCryptoPositionComment.trim() || null,
+      })
+      .eq('id', editingCryptoPositionId);
+
+    setCryptoPositionEditSubmitting(false);
+
+    if (error) {
+      setCryptoPositionEditError(error.message);
+      return;
+    }
+
+    cancelEditCryptoPosition();
+    await loadCryptoPositions();
+  };
+
+  const handleDeleteCryptoPosition = async (positionId: string) => {
+    if (!window.confirm('Are you sure you want to delete this crypto position?')) {
+      return;
+    }
+
+    setCryptoPositionDeleteError(null);
+
+    const { error } = await supabase.from('positions').delete().eq('id', positionId);
+
+    if (error) {
+      setCryptoPositionDeleteError(error.message);
+      return;
+    }
+
+    await loadCryptoPositions();
   };
 
   const startEditPosition = (position: PositionWithInstrument) => {
@@ -3596,6 +3721,12 @@ export default function SetupPage() {
             </div>
           )}
 
+          {cryptoPositionDeleteError && (
+            <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+              {cryptoPositionDeleteError}
+            </div>
+          )}
+
           <div className="space-y-1">
             <label className="block text-xs font-medium text-neutral-700">
               Crypto account (required)
@@ -3629,77 +3760,170 @@ export default function SetupPage() {
                       key={pos.id}
                       className="rounded-md border border-neutral-200 px-3 py-2"
                     >
-                      <div className="flex items-center justify-between">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2">
-                            <span className="font-medium text-neutral-900">
-                              {pos.instrument.display_symbol || pos.instrument.provider_symbol}
-                            </span>
-                            <span className="rounded bg-purple-100 px-1.5 py-0.5 text-xs font-medium text-purple-800">
-                              {pos.instrument.kind}
-                            </span>
+                      {editingCryptoPositionId === pos.id ? (
+                        <div className="space-y-3">
+                          <div className="flex items-center justify-between">
+                            <h4 className="text-sm font-semibold text-neutral-900">
+                              Edit crypto position
+                            </h4>
+                            <button
+                              type="button"
+                              onClick={cancelEditCryptoPosition}
+                              className="text-xs text-neutral-600 hover:text-neutral-900"
+                            >
+                              ✕
+                            </button>
                           </div>
-                          <div className="mt-1 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-neutral-600">
-                            <span>
-                              Coin id:{' '}
-                              <span className="font-medium">
-                                {pos.instrument.provider_symbol}
-                              </span>
-                            </span>
-                            <span>
-                              Quantity:{' '}
-                              <span className="font-medium">{pos.quantity}</span>
-                            </span>
-                            <span>
-                              Currency:{' '}
-                              <span className="font-medium">{pos.quote_currency}</span>
-                            </span>
-                            <span>
-                              Price:{' '}
-                              {pos.last_price !== null && pos.last_price !== undefined ? (
-                                <>
-                                  <span className="font-medium">
-                                    {pos.quote_currency === 'EUR' ? '€' : '$'}
-                                    {pos.last_price.toFixed(2)}
-                                  </span>
-                                  {pos.quote_currency === 'USD' && fxRate && (
-                                    <span className="ml-1 text-neutral-500">
-                                      (≈ €{(pos.last_price * fxRate).toFixed(2)})
-                                    </span>
-                                  )}
-                                </>
-                              ) : (
-                                <span className="font-medium">—</span>
-                              )}
-                            </span>
-                            <span>
-                              Value:{' '}
-                              {pos.last_price !== null && pos.last_price !== undefined ? (
-                                <>
-                                  <span className="font-medium">
-                                    {pos.quote_currency === 'EUR' ? '€' : '$'}
-                                    {(pos.quantity * pos.last_price).toFixed(2)}
-                                  </span>
-                                  {pos.quote_currency === 'USD' && fxRate && (
-                                    <span className="ml-1 text-neutral-500">
-                                      (≈ €
-                                      {(pos.quantity * pos.last_price * fxRate).toFixed(2)})
-                                    </span>
-                                  )}
-                                </>
-                              ) : (
-                                <span className="font-medium">—</span>
-                              )}
-                            </span>
-                            {pos.comment && (
-                              <span className="col-span-2">
-                                Comment:{' '}
-                                <span className="font-medium">{pos.comment}</span>
-                              </span>
+
+                          <div className="space-y-2">
+                            <div className="text-xs text-neutral-600">
+                              Symbol:{' '}
+                              {pos.instrument.display_symbol || pos.instrument.provider_symbol}{' '}
+                              ({pos.instrument.kind})
+                            </div>
+
+                            <div className="space-y-1">
+                              <label className="block text-xs font-medium text-neutral-700">
+                                Quantity
+                              </label>
+                              <input
+                                type="text"
+                                value={editCryptoPositionQuantity}
+                                onChange={(e) => setEditCryptoPositionQuantity(e.target.value)}
+                                className="w-full rounded-lg border border-neutral-300 px-2 py-1 text-xs outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                              />
+                              <p className="mt-1 text-[10px] text-neutral-500">
+                                You can enter expressions: 0.1+0.2, supports + - * / ( )
+                              </p>
+                            </div>
+
+                            <div className="space-y-1">
+                              <label className="block text-xs font-medium text-neutral-700">
+                                Comment
+                              </label>
+                              <input
+                                type="text"
+                                value={editCryptoPositionComment}
+                                onChange={(e) => setEditCryptoPositionComment(e.target.value)}
+                                className="w-full rounded-lg border border-neutral-300 px-2 py-1 text-xs outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                              />
+                            </div>
+
+                            {cryptoPositionEditError && (
+                              <div className="rounded-lg bg-red-50 px-2 py-1 text-xs text-red-700">
+                                {cryptoPositionEditError}
+                              </div>
                             )}
+
+                            <div className="flex gap-2">
+                              <button
+                                type="button"
+                                onClick={handleUpdateCryptoPosition}
+                                disabled={cryptoPositionEditSubmitting}
+                                className="flex-1 rounded-lg bg-neutral-900 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:bg-neutral-400"
+                              >
+                                {cryptoPositionEditSubmitting ? 'Saving...' : 'Save'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={cancelEditCryptoPosition}
+                                disabled={cryptoPositionEditSubmitting}
+                                className="flex-1 rounded-lg border border-neutral-300 px-3 py-1.5 text-xs font-medium text-neutral-800 transition hover:bg-neutral-100 disabled:cursor-not-allowed"
+                              >
+                                Cancel
+                              </button>
+                            </div>
                           </div>
                         </div>
-                      </div>
+                      ) : (
+                        <div className="flex items-center justify-between">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium text-neutral-900">
+                                {pos.instrument.display_symbol || pos.instrument.provider_symbol}
+                              </span>
+                              <span className="rounded bg-purple-100 px-1.5 py-0.5 text-xs font-medium text-purple-800">
+                                {pos.instrument.kind}
+                              </span>
+                            </div>
+                            <div className="mt-1 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-neutral-600">
+                              <span>
+                                Coin id:{' '}
+                                <span className="font-medium">
+                                  {pos.instrument.provider_symbol}
+                                </span>
+                              </span>
+                              <span>
+                                Quantity:{' '}
+                                <span className="font-medium">{pos.quantity}</span>
+                              </span>
+                              <span>
+                                Currency:{' '}
+                                <span className="font-medium">{pos.quote_currency}</span>
+                              </span>
+                              <span>
+                                Price:{' '}
+                                {pos.last_price !== null && pos.last_price !== undefined ? (
+                                  <>
+                                    <span className="font-medium">
+                                      {pos.quote_currency === 'EUR' ? '€' : '$'}
+                                      {pos.last_price.toFixed(2)}
+                                    </span>
+                                    {pos.quote_currency === 'USD' && fxRate && (
+                                      <span className="ml-1 text-neutral-500">
+                                        (≈ €{(pos.last_price * fxRate).toFixed(2)})
+                                      </span>
+                                    )}
+                                  </>
+                                ) : (
+                                  <span className="font-medium">—</span>
+                                )}
+                              </span>
+                              <span>
+                                Value:{' '}
+                                {pos.last_price !== null && pos.last_price !== undefined ? (
+                                  <>
+                                    <span className="font-medium">
+                                      {pos.quote_currency === 'EUR' ? '€' : '$'}
+                                      {(pos.quantity * pos.last_price).toFixed(2)}
+                                    </span>
+                                    {pos.quote_currency === 'USD' && fxRate && (
+                                      <span className="ml-1 text-neutral-500">
+                                        (≈ €
+                                        {(pos.quantity * pos.last_price * fxRate).toFixed(2)})
+                                      </span>
+                                    )}
+                                  </>
+                                ) : (
+                                  <span className="font-medium">—</span>
+                                )}
+                              </span>
+                              {pos.comment && (
+                                <span className="col-span-2">
+                                  Comment:{' '}
+                                  <span className="font-medium">{pos.comment}</span>
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex flex-col gap-1">
+                            <button
+                              type="button"
+                              onClick={() => startEditCryptoPosition(pos)}
+                              className="text-xs text-blue-600 hover:text-blue-800"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteCryptoPosition(pos.id)}
+                              className="text-xs text-red-600 hover:text-red-800"
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ))
                 )}
@@ -3724,6 +3948,9 @@ export default function SetupPage() {
                     className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
                     placeholder="e.g. bitcoin"
                   />
+                  <p className="mt-1 text-xs text-neutral-500">
+                    Coin id from CoinGecko, e.g. &quot;bitcoin&quot; or &quot;ethereum&quot;.
+                  </p>
                 </div>
 
                 <div className="space-y-1">

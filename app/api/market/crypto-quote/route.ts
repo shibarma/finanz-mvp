@@ -3,14 +3,17 @@ import { NextResponse } from 'next/server';
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
-    const coinId = searchParams.get('coin_id');
-    const vsCurrency = searchParams.get('vs_currency');
+    // Support both camelCase (coinId, vsCurrency) and snake_case (coin_id, vs_currency)
+    const coinId =
+      searchParams.get('coinId') ?? searchParams.get('coin_id');
+    const vsCurrency =
+      searchParams.get('vsCurrency') ?? searchParams.get('vs_currency');
 
     if (!coinId || !vsCurrency) {
       return NextResponse.json(
         {
           ok: false,
-          error: 'Missing required query parameters "coin_id" and/or "vs_currency"',
+          error: 'Missing required query parameters "coinId" and/or "vsCurrency"',
         },
         { status: 400 },
       );
@@ -23,17 +26,26 @@ export async function GET(request: Request) {
       return NextResponse.json(
         {
           ok: false,
-          error: 'coin_id and vs_currency must be non-empty strings',
+          error: 'coinId and vsCurrency must be non-empty strings',
         },
         { status: 400 },
       );
     }
 
-    const url = `https://api.coingecko.com/api/v3/simple/price?ids=${encodeURIComponent(
-      normalizedCoinId,
-    )}&vs_currencies=${encodeURIComponent(normalizedVsCurrency)}`;
+    const apiKey = process.env.COINGECKO_DEMO_API_KEY;
+    const url = new URL('https://api.coingecko.com/api/v3/simple/price');
+    url.searchParams.set('ids', normalizedCoinId);
+    url.searchParams.set('vs_currencies', normalizedVsCurrency);
 
-    const cgResponse = await fetch(url);
+    const headers: Record<string, string> = {};
+    if (apiKey) {
+      // CoinGecko demo API key header, see their documentation.
+      headers['x-cg-demo-api-key'] = apiKey;
+    }
+
+    const cgResponse = await fetch(url.toString(), {
+      headers: Object.keys(headers).length ? headers : undefined,
+    });
 
     if (!cgResponse.ok) {
       const errorBody = await cgResponse.text().catch(() => 'Unknown error');
@@ -64,22 +76,19 @@ export async function GET(request: Request) {
       );
     }
 
-    const price =
-      data?.[normalizedCoinId]?.[normalizedVsCurrency];
+    const price = data?.[normalizedCoinId]?.[normalizedVsCurrency];
+    const fetchedAt: string = new Date().toISOString();
 
     if (typeof price !== 'number' || !Number.isFinite(price) || price <= 0) {
       return NextResponse.json(
         {
           ok: false,
-          error: 'Invalid or missing price in CoinGecko response',
-          status: 502,
-          body: JSON.stringify(data).slice(0, 500),
+          status: 404,
+          reason: 'Coin not found',
         },
-        { status: 502 },
+        { status: 404 },
       );
     }
-
-    const fetchedAt = new Date().toISOString();
 
     return NextResponse.json({
       ok: true,
