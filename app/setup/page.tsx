@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { getSession, supabase } from '../../lib/supabaseClient';
 import { parseMoneyExpression } from '../../lib/parseMoneyExpression';
 
-type AccountKind = 'debit' | 'credit' | 'cash' | 'broker';
+type AccountKind = 'debit' | 'credit' | 'cash' | 'broker' | 'crypto';
 type AccountCurrency = 'EUR' | 'USD';
 
 interface Account {
@@ -176,7 +176,7 @@ export default function SetupPage() {
   const [categorySubmitting, setCategorySubmitting] = useState(false);
   const [categoryFormError, setCategoryFormError] = useState<string | null>(null);
 
-  // Investments/Positions
+  // Investments/Positions (broker)
   const [selectedBrokerAccountId, setSelectedBrokerAccountId] = useState<string>('');
   const [positions, setPositions] = useState<PositionWithInstrument[]>([]);
   const [positionsLoading, setPositionsLoading] = useState(false);
@@ -196,6 +196,21 @@ export default function SetupPage() {
   const [positionEditSubmitting, setPositionEditSubmitting] = useState(false);
   const [positionEditError, setPositionEditError] = useState<string | null>(null);
   const [positionDeleteError, setPositionDeleteError] = useState<string | null>(null);
+
+  // Crypto positions
+  const [selectedCryptoAccountId, setSelectedCryptoAccountId] = useState<string>('');
+  const [cryptoPositions, setCryptoPositions] = useState<PositionWithInstrument[]>([]);
+  const [cryptoPositionsLoading, setCryptoPositionsLoading] = useState(false);
+  const [cryptoPositionsError, setCryptoPositionsError] = useState<string | null>(null);
+  const [cryptoPositionFormError, setCryptoPositionFormError] = useState<string | null>(
+    null,
+  );
+  const [cryptoPositionSubmitting, setCryptoPositionSubmitting] = useState(false);
+  const [cryptoCoinId, setCryptoCoinId] = useState('');
+  const [cryptoDisplaySymbol, setCryptoDisplaySymbol] = useState('');
+  const [cryptoName, setCryptoName] = useState('');
+  const [cryptoQuantity, setCryptoQuantity] = useState('');
+  const [cryptoComment, setCryptoComment] = useState('');
 
   // Budgets
   const [budgets, setBudgets] = useState<Budget[]>([]);
@@ -1459,6 +1474,11 @@ export default function SetupPage() {
     [accounts],
   );
 
+  const cryptoAccounts = useMemo(
+    () => accounts.filter((a) => a.kind === 'crypto'),
+    [accounts],
+  );
+
   // Map category_id -> budget name (for "already in X" display)
   const categoryToBudgetMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -1535,6 +1555,62 @@ export default function SetupPage() {
   useEffect(() => {
     loadPositions();
   }, [selectedBrokerAccountId, userId]);
+
+  const loadCryptoPositions = async () => {
+    if (!selectedCryptoAccountId || !userId) {
+      setCryptoPositions([]);
+      return;
+    }
+
+    setCryptoPositionsLoading(true);
+    setCryptoPositionsError(null);
+
+    try {
+      const { data, error } = await supabase
+        .from('positions')
+        .select(
+          'id, user_id, broker_account_id, instrument_id, quote_currency, quantity, comment, last_price, last_price_at, created_at, instruments!inner(id, user_id, kind, provider, provider_symbol, display_symbol, name, created_at)',
+        )
+        .eq('broker_account_id', selectedCryptoAccountId)
+        .eq('user_id', userId)
+        .eq('instruments.kind', 'crypto')
+        .order('created_at', { ascending: true });
+
+      setCryptoPositionsLoading(false);
+
+      if (error) {
+        setCryptoPositionsError(error.message);
+        return;
+      }
+
+      const positionsWithInstruments: PositionWithInstrument[] = (data || []).map(
+        (p: any) => ({
+          id: p.id,
+          user_id: p.user_id,
+          broker_account_id: p.broker_account_id,
+          instrument_id: p.instrument_id,
+          quote_currency: p.quote_currency,
+          quantity: p.quantity,
+          comment: p.comment,
+          last_price: p.last_price,
+          last_price_at: p.last_price_at,
+          created_at: p.created_at,
+          instrument: Array.isArray(p.instruments) ? p.instruments[0] : p.instruments,
+        }),
+      );
+
+      setCryptoPositions(positionsWithInstruments);
+    } catch (err) {
+      setCryptoPositionsLoading(false);
+      setCryptoPositionsError(
+        err instanceof Error ? err.message : 'Failed to load crypto positions',
+      );
+    }
+  };
+
+  useEffect(() => {
+    loadCryptoPositions();
+  }, [selectedCryptoAccountId, userId]);
 
   const handleCreatePosition = async (e: FormEvent) => {
     e.preventDefault();
@@ -1738,6 +1814,126 @@ export default function SetupPage() {
     } catch (err) {
       setPositionSubmitting(false);
       setPositionFormError(err instanceof Error ? err.message : 'Failed to create position');
+    }
+  };
+
+  const handleCreateCryptoPosition = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!userId || !selectedCryptoAccountId) return;
+
+    setCryptoPositionFormError(null);
+
+    if (!cryptoCoinId.trim()) {
+      setCryptoPositionFormError('CoinGecko coin id is required.');
+      return;
+    }
+
+    if (!cryptoDisplaySymbol.trim()) {
+      setCryptoPositionFormError('Display symbol is required.');
+      return;
+    }
+
+    const cryptoAccount = accounts.find((a) => a.id === selectedCryptoAccountId);
+    if (!cryptoAccount || !cryptoAccount.currency) {
+      setCryptoPositionFormError('Crypto account not found or currency not set.');
+      return;
+    }
+
+    const parsedQty = parseMoneyExpression(cryptoQuantity);
+    if (!parsedQty.ok) {
+      setCryptoPositionFormError(parsedQty.error);
+      return;
+    }
+    const quantityNum = parsedQty.value;
+    if (quantityNum < 0) {
+      setCryptoPositionFormError('Quantity cannot be negative.');
+      return;
+    }
+
+    setCryptoPositionSubmitting(true);
+    setCryptoPositionFormError(null);
+
+    try {
+      const normalizedCoinId = cryptoCoinId.trim().toLowerCase();
+      const displaySymbol = cryptoDisplaySymbol.trim().toUpperCase();
+      const name = cryptoName.trim() !== '' ? cryptoName.trim() : null;
+
+      // Find or create crypto instrument
+      const { data: existingInstrument, error: findError } = await supabase
+        .from('instruments')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('provider', 'coingecko')
+        .eq('provider_symbol', normalizedCoinId)
+        .maybeSingle();
+
+      if (findError && findError.code !== 'PGRST116') {
+        setCryptoPositionSubmitting(false);
+        setCryptoPositionFormError(findError.message);
+        return;
+      }
+
+      let instrumentId: string;
+
+      if (existingInstrument) {
+        instrumentId = (existingInstrument as { id: string }).id;
+      } else {
+        const { data: newInstrument, error: createError } = await supabase
+          .from('instruments')
+          .insert({
+            user_id: userId,
+            kind: 'crypto',
+            provider: 'coingecko',
+            provider_symbol: normalizedCoinId,
+            display_symbol: displaySymbol,
+            name,
+          })
+          .select('id')
+          .single();
+
+        if (createError) {
+          setCryptoPositionSubmitting(false);
+          setCryptoPositionFormError(createError.message);
+          return;
+        }
+
+        if (!newInstrument) {
+          setCryptoPositionSubmitting(false);
+          setCryptoPositionFormError('Failed to create instrument.');
+          return;
+        }
+
+        instrumentId = (newInstrument as { id: string }).id;
+      }
+
+      const { error: positionError } = await supabase.from('positions').insert({
+        user_id: userId,
+        broker_account_id: selectedCryptoAccountId,
+        instrument_id: instrumentId,
+        quote_currency: cryptoAccount.currency,
+        quantity: quantityNum,
+        comment: cryptoComment.trim() || null,
+      });
+
+      if (positionError) {
+        setCryptoPositionSubmitting(false);
+        setCryptoPositionFormError(positionError.message);
+        return;
+      }
+
+      setCryptoCoinId('');
+      setCryptoDisplaySymbol('');
+      setCryptoName('');
+      setCryptoQuantity('');
+      setCryptoComment('');
+
+      await loadCryptoPositions();
+      setCryptoPositionSubmitting(false);
+    } catch (err) {
+      setCryptoPositionSubmitting(false);
+      setCryptoPositionFormError(
+        err instanceof Error ? err.message : 'Failed to create crypto position',
+      );
     }
   };
 
@@ -2236,6 +2432,7 @@ export default function SetupPage() {
                     <option value="credit">credit</option>
                     <option value="cash">cash</option>
                     <option value="broker">broker</option>
+                    <option value="crypto">crypto</option>
                   </select>
                 </div>
 
@@ -3034,10 +3231,10 @@ export default function SetupPage() {
 
         {/* Investments/Positions block */}
         <section className="flex flex-col gap-4 rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm md:p-6">
-            <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-              <h2 className="text-lg font-semibold text-neutral-900">Investments / Positions</h2>
-              {positionsLoading && <span className="text-xs text-neutral-500">Loading...</span>}
-            </div>
+          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <h2 className="text-lg font-semibold text-neutral-900">Investments / Positions</h2>
+            {positionsLoading && <span className="text-xs text-neutral-500">Loading...</span>}
+          </div>
 
             {positionsError && (
               <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
@@ -3255,7 +3452,6 @@ export default function SetupPage() {
                       <option value="stock">stock</option>
                       <option value="etf">etf</option>
                       <option value="bond">bond</option>
-                      <option value="crypto">crypto</option>
                       <option value="other">other</option>
                     </select>
                   </div>
@@ -3384,6 +3580,203 @@ export default function SetupPage() {
               </>
             ) : null}
           </section>
+
+        {/* Crypto / Positions block */}
+        <section className="flex flex-col gap-4 rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm md:p-6">
+          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <h2 className="text-lg font-semibold text-neutral-900">Crypto / Positions</h2>
+            {cryptoPositionsLoading && (
+              <span className="text-xs text-neutral-500">Loading...</span>
+            )}
+          </div>
+
+          {cryptoPositionsError && (
+            <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+              {cryptoPositionsError}
+            </div>
+          )}
+
+          <div className="space-y-1">
+            <label className="block text-xs font-medium text-neutral-700">
+              Crypto account (required)
+            </label>
+            <select
+              value={selectedCryptoAccountId}
+              onChange={(e) => setSelectedCryptoAccountId(e.target.value)}
+              className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+            >
+              <option value="">Select crypto account</option>
+              {cryptoAccounts.map((acc) => (
+                <option key={acc.id} value={acc.id}>
+                  {acc.name} ({(acc.currency || 'EUR') === 'EUR' ? 'EUR' : 'USD'})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {cryptoAccounts.length === 0 ? (
+            <p className="text-sm text-neutral-600">
+              Create a crypto account (type crypto) to add crypto positions.
+            </p>
+          ) : selectedCryptoAccountId ? (
+            <>
+              <div className="max-h-96 space-y-2 overflow-auto rounded-lg border border-neutral-200 p-3 text-sm">
+                {cryptoPositions.length === 0 ? (
+                  <p className="text-neutral-600">No crypto positions.</p>
+                ) : (
+                  cryptoPositions.map((pos) => (
+                    <div
+                      key={pos.id}
+                      className="rounded-md border border-neutral-200 px-3 py-2"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium text-neutral-900">
+                              {pos.instrument.display_symbol || pos.instrument.provider_symbol}
+                            </span>
+                            <span className="rounded bg-purple-100 px-1.5 py-0.5 text-xs font-medium text-purple-800">
+                              {pos.instrument.kind}
+                            </span>
+                          </div>
+                          <div className="mt-1 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-neutral-600">
+                            <span>
+                              Coin id:{' '}
+                              <span className="font-medium">
+                                {pos.instrument.provider_symbol}
+                              </span>
+                            </span>
+                            <span>
+                              Quantity:{' '}
+                              <span className="font-medium">{pos.quantity}</span>
+                            </span>
+                            <span>
+                              Currency:{' '}
+                              <span className="font-medium">{pos.quote_currency}</span>
+                            </span>
+                            {pos.comment && (
+                              <span className="col-span-2">
+                                Comment:{' '}
+                                <span className="font-medium">{pos.comment}</span>
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              <form className="mt-2 space-y-3" onSubmit={handleCreateCryptoPosition}>
+                <h3 className="text-sm font-semibold text-neutral-900">Add crypto position</h3>
+
+                <div className="space-y-1">
+                  <label
+                    className="block text-xs font-medium text-neutral-700"
+                    htmlFor="crypto-coin-id"
+                  >
+                    CoinGecko coin id
+                  </label>
+                  <input
+                    id="crypto-coin-id"
+                    type="text"
+                    value={cryptoCoinId}
+                    onChange={(e) => setCryptoCoinId(e.target.value)}
+                    required
+                    className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                    placeholder="e.g. bitcoin"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label
+                    className="block text-xs font-medium text-neutral-700"
+                    htmlFor="crypto-display-symbol"
+                  >
+                    Display symbol
+                  </label>
+                  <input
+                    id="crypto-display-symbol"
+                    type="text"
+                    value={cryptoDisplaySymbol}
+                    onChange={(e) => setCryptoDisplaySymbol(e.target.value)}
+                    required
+                    className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                    placeholder="e.g. BTC"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label
+                    className="block text-xs font-medium text-neutral-700"
+                    htmlFor="crypto-name"
+                  >
+                    Name (optional)
+                  </label>
+                  <input
+                    id="crypto-name"
+                    type="text"
+                    value={cryptoName}
+                    onChange={(e) => setCryptoName(e.target.value)}
+                    className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                    placeholder="e.g. Bitcoin"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label
+                    className="block text-xs font-medium text-neutral-700"
+                    htmlFor="crypto-quantity"
+                  >
+                    Quantity
+                  </label>
+                  <input
+                    id="crypto-quantity"
+                    type="text"
+                    value={cryptoQuantity}
+                    onChange={(e) => setCryptoQuantity(e.target.value)}
+                    className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                    placeholder="e.g. 0.5"
+                  />
+                  <p className="mt-1 text-xs text-neutral-500">
+                    You can enter expressions: 0.1+0.2, supports + - * / ( )
+                  </p>
+                </div>
+
+                <div className="space-y-1">
+                  <label
+                    className="block text-xs font-medium text-neutral-700"
+                    htmlFor="crypto-comment"
+                  >
+                    Comment (optional)
+                  </label>
+                  <input
+                    id="crypto-comment"
+                    type="text"
+                    value={cryptoComment}
+                    onChange={(e) => setCryptoComment(e.target.value)}
+                    className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                  />
+                </div>
+
+                {cryptoPositionFormError && (
+                  <div className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">
+                    {cryptoPositionFormError}
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={cryptoPositionSubmitting}
+                  className="mt-1 w-full rounded-lg bg-neutral-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:bg-neutral-400"
+                >
+                  {cryptoPositionSubmitting ? 'Creating...' : 'Create crypto position'}
+                </button>
+              </form>
+            </>
+          ) : null}
+        </section>
 
         {/* Danger Zone */}
         <section className="rounded-2xl border-2 border-red-200 bg-red-50 p-4 shadow-sm md:p-6">

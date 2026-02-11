@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { getSession, supabase } from '../../lib/supabaseClient';
 import { parseMoneyExpression } from '../../lib/parseMoneyExpression';
 
-type AccountKind = 'debit' | 'credit' | 'cash' | 'broker';
+type AccountKind = 'debit' | 'credit' | 'cash' | 'broker' | 'crypto';
 type AccountCurrency = 'EUR' | 'USD';
 
 interface Account {
@@ -814,6 +814,7 @@ export default function FinanceAppPage() {
     let creditEur = 0;
     let cashEur = 0;
     let brokerCashEur = 0;
+    let cryptoCashEur = 0;
     let investEur = 0;
     let usdExcludedFromTotals = false;
 
@@ -833,6 +834,19 @@ export default function FinanceAppPage() {
           return;
         }
         brokerCashEur += eurValueBroker;
+        return;
+      }
+
+      // Crypto: считаем отдельно, не включаем в общий totalEur и investEur
+      if (account.kind === 'crypto') {
+        const eurValueCrypto = toEur(accBalance.balance, accountCurrency, fxRate);
+        if (eurValueCrypto === null) {
+          if (accountCurrency === 'USD') {
+            usdExcludedFromTotals = true;
+          }
+          return;
+        }
+        cryptoCashEur += eurValueCrypto;
         return;
       }
 
@@ -881,7 +895,16 @@ export default function FinanceAppPage() {
       investEur += eurValue;
     });
 
-    return { totalEur, debitEur, creditEur, cashEur, brokerCashEur, investEur, usdExcludedFromTotals };
+    return {
+      totalEur,
+      debitEur,
+      creditEur,
+      cashEur,
+      brokerCashEur,
+      cryptoCashEur,
+      investEur,
+      usdExcludedFromTotals,
+    };
   }, [accountBalances, accountsById, fxRate, positions]);
 
   const handleIncome = async () => {
@@ -2648,6 +2671,12 @@ export default function FinanceAppPage() {
               <p className="text-xs text-neutral-600">Broker (EUR)</p>
               <p className="text-2xl font-semibold text-neutral-900">
                 €{totals.brokerCashEur.toFixed(2)}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-neutral-600">Crypto (EUR)</p>
+              <p className="text-2xl font-semibold text-neutral-900">
+                €{totals.cryptoCashEur.toFixed(2)}
               </p>
             </div>
             <div>

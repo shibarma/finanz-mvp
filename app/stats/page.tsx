@@ -24,8 +24,8 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 
-// Schema: accounts.kind includes 'broker'; accounts.currency added (was missing in older backups)
-type AccountKind = 'debit' | 'credit' | 'cash' | 'broker';
+// Schema: accounts.kind includes 'broker' and 'crypto'; accounts.currency added (was missing in older backups)
+type AccountKind = 'debit' | 'credit' | 'cash' | 'broker' | 'crypto';
 
 interface Account {
   id: string;
