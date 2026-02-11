@@ -323,11 +323,15 @@ export async function refreshPricesEngine(
       continue;
     }
 
-    const providerSymbol = (instrument.provider_symbol || instrument.display_symbol || '')
+    const providerSymbolRaw = (instrument.provider_symbol || instrument.display_symbol || '')
       .toString()
       .trim();
+    const symbolForLog =
+      providerSymbolRaw ||
+      (instrument.display_symbol || '').toString().trim() ||
+      'UNKNOWN';
 
-    if (!providerSymbol) {
+    if (!providerSymbolRaw) {
       summary.skipped += 1;
       summary.errors.push({
         position_id: position.id,
@@ -343,7 +347,7 @@ export async function refreshPricesEngine(
     let cacheKey: string;
 
     if (provider === 'coingecko' && kind === 'crypto') {
-      const coinId = providerSymbol.toLowerCase();
+      const coinId = providerSymbolRaw.toLowerCase();
       const vsCurrency = ((position.quote_currency || 'EUR') as string).toLowerCase();
       cacheKey = `coingecko:${coinId}:${vsCurrency}`;
 
@@ -354,7 +358,7 @@ export async function refreshPricesEngine(
         quoteCache.set(cacheKey, quoteResult);
       }
     } else {
-      const symbol = providerSymbol.toUpperCase();
+      const symbol = providerSymbolRaw.toUpperCase();
       cacheKey = `finnhub:${symbol}`;
 
       quoteResult = quoteCache.get(cacheKey);
@@ -365,7 +369,7 @@ export async function refreshPricesEngine(
           summary.errors.push({
             scope: 'quote',
             position_id: position.id,
-            symbol: String(symbol),
+            symbol: symbolForLog,
             reason: 'FINNHUB_API_KEY not configured',
           });
           continue;
@@ -395,7 +399,7 @@ export async function refreshPricesEngine(
 
       const errorItem: RefreshError = {
         position_id: position.id,
-        symbol: String(providerSymbol),
+        symbol: symbolForLog,
         status: quoteResult.status,
         reason: quoteResult.reason,
       };
@@ -416,7 +420,7 @@ export async function refreshPricesEngine(
       summary.skipped += 1;
       summary.errors.push({
         position_id: position.id,
-        symbol,
+        symbol: symbolForLog,
         reason: 'Price or fetchedAt is null after quote processing',
       });
       continue;
@@ -439,7 +443,7 @@ export async function refreshPricesEngine(
       summary.skipped += 1;
       summary.errors.push({
         position_id: position.id,
-        symbol,
+        symbol: symbolForLog,
         reason: 'Failed to update position price',
         error: updateError.message,
       });
@@ -469,7 +473,7 @@ export async function refreshPricesEngine(
       // Price was updated; snapshot failed – record error but still count as updated
       summary.errors.push({
         position_id: position.id,
-        symbol,
+        symbol: symbolForLog,
         reason: 'Failed to upsert position_price_history',
         error: historyError.message,
       });
