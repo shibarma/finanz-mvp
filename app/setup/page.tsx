@@ -207,8 +207,6 @@ export default function SetupPage() {
   );
   const [cryptoPositionSubmitting, setCryptoPositionSubmitting] = useState(false);
   const [cryptoCoinId, setCryptoCoinId] = useState('');
-  const [cryptoDisplaySymbol, setCryptoDisplaySymbol] = useState('');
-  const [cryptoName, setCryptoName] = useState('');
   const [cryptoQuantity, setCryptoQuantity] = useState('');
   const [cryptoComment, setCryptoComment] = useState('');
   const [editingCryptoPositionId, setEditingCryptoPositionId] = useState<string | null>(
@@ -1840,11 +1838,6 @@ export default function SetupPage() {
       return;
     }
 
-    if (!cryptoDisplaySymbol.trim()) {
-      setCryptoPositionFormError('Display symbol is required.');
-      return;
-    }
-
     const cryptoAccount = accounts.find((a) => a.id === selectedCryptoAccountId);
     if (!cryptoAccount || !cryptoAccount.currency) {
       setCryptoPositionFormError('Crypto account not found or currency not set.');
@@ -1867,8 +1860,7 @@ export default function SetupPage() {
 
     try {
       const normalizedCoinId = cryptoCoinId.trim().toLowerCase();
-      const displaySymbol = cryptoDisplaySymbol.trim().toUpperCase();
-      const name = cryptoName.trim() !== '' ? cryptoName.trim() : null;
+      const displaySymbol = normalizedCoinId.toUpperCase();
       const vsCurrency = (cryptoAccount.currency || 'EUR').toLowerCase();
 
       // Fetch price from CoinGecko before creating instrument/position
@@ -1940,7 +1932,7 @@ export default function SetupPage() {
             provider: 'coingecko',
             provider_symbol: normalizedCoinId,
             display_symbol: displaySymbol,
-            name,
+            name: null,
           })
           .select('id')
           .single();
@@ -1960,27 +1952,50 @@ export default function SetupPage() {
         instrumentId = (newInstrument as { id: string }).id;
       }
 
-      const { error: positionError } = await supabase.from('positions').insert({
-        user_id: userId,
-        broker_account_id: selectedCryptoAccountId,
-        instrument_id: instrumentId,
-        quote_currency: cryptoAccount.currency,
-        quantity: quantityNum,
-        comment: cryptoComment.trim() || null,
-        last_price: cgPrice,
-        last_price_at: fetchedAt,
-      });
+      const { data: newPosition, error: positionError } = await supabase
+        .from('positions')
+        .insert({
+          user_id: userId,
+          broker_account_id: selectedCryptoAccountId,
+          instrument_id: instrumentId,
+          quote_currency: cryptoAccount.currency,
+          quantity: quantityNum,
+          comment: cryptoComment.trim() || null,
+          last_price: cgPrice,
+          last_price_at: fetchedAt,
+        })
+        .select('id, quantity')
+        .single();
 
-      if (positionError) {
+      if (positionError || !newPosition) {
         setCryptoPositionSubmitting(false);
-        setCryptoPositionFormError(positionError.message);
+        setCryptoPositionFormError(positionError?.message || 'Failed to create position');
         return;
+      }
+
+      // Записываем snapshot в position_price_history (как в refreshPricesEngine)
+      try {
+        const nowIso = new Date().toISOString();
+        const capturedDate = nowIso.slice(0, 10); // YYYY-MM-DD
+        await supabase.from('position_price_history').upsert(
+          {
+            user_id: userId,
+            position_id: newPosition.id,
+            price: cgPrice,
+            currency: cryptoAccount.currency,
+            price_at: fetchedAt,
+            captured_at: nowIso,
+            captured_date: capturedDate,
+            quantity_snapshot: newPosition.quantity,
+          },
+          { onConflict: 'user_id,position_id,captured_date' },
+        );
+      } catch {
+        // если snapshot не сохранился — не ломаем поток
       }
 
       // Clear form only on success
       setCryptoCoinId('');
-      setCryptoDisplaySymbol('');
-      setCryptoName('');
       setCryptoQuantity('');
       setCryptoComment('');
 
@@ -3953,39 +3968,16 @@ export default function SetupPage() {
                   </p>
                 </div>
 
+                {/* Display symbol is derived automatically from the CoinGecko id */}
                 <div className="space-y-1">
-                  <label
-                    className="block text-xs font-medium text-neutral-700"
-                    htmlFor="crypto-display-symbol"
-                  >
-                    Display symbol
-                  </label>
-                  <input
-                    id="crypto-display-symbol"
-                    type="text"
-                    value={cryptoDisplaySymbol}
-                    onChange={(e) => setCryptoDisplaySymbol(e.target.value)}
-                    required
-                    className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
-                    placeholder="e.g. BTC"
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <label
-                    className="block text-xs font-medium text-neutral-700"
-                    htmlFor="crypto-name"
-                  >
-                    Name (optional)
-                  </label>
-                  <input
-                    id="crypto-name"
-                    type="text"
-                    value={cryptoName}
-                    onChange={(e) => setCryptoName(e.target.value)}
-                    className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
-                    placeholder="e.g. Bitcoin"
-                  />
+                  <span className="block text-xs font-medium text-neutral-700">
+                    Display symbol (auto)
+                  </span>
+                  <div className="rounded-lg border border-dashed border-neutral-300 bg-neutral-50 px-3 py-2 text-sm text-neutral-700">
+                    {cryptoCoinId.trim()
+                      ? cryptoCoinId.trim().toUpperCase()
+                      : 'Will be set automatically from coin id'}
+                  </div>
                 </div>
 
                 <div className="space-y-1">
