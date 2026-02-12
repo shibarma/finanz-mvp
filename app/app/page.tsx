@@ -761,24 +761,107 @@ export default function FinanceAppPage() {
     setFxError(null);
 
     try {
-      const { data, error: fetchError } = await supabase
-        .from('fx_rates')
-        .select('rate, fetched_at')
-        .eq('base_currency', 'USD')
-        .eq('quote_currency', 'EUR')
-        .order('fetched_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+      const todayStr = new Date().toISOString().slice(0, 10);
 
-      if (!fetchError && data) {
-        setFxRate(data.rate);
-      } else {
-        setFxRate(null);
-        if (fetchError) {
-          setFxError(fetchError.message);
-          console.error('FX load error:', fetchError.message);
+      const readLatestGlobalRate = async (): Promise<number | null> => {
+        // First, try today's rate from fx_rates_global
+        const { data: todayRow, error: todayError } = await supabase
+          .from('fx_rates_global')
+          .select('rate, fetched_at, captured_date')
+          .eq('base_currency', 'USD')
+          .eq('quote_currency', 'EUR')
+          .eq('captured_date', todayStr)
+          .order('fetched_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (!todayError && todayRow) {
+          return todayRow.rate as number;
+        }
+
+        if (todayError) {
+          console.error('FX global load error (today):', todayError.message);
+        }
+
+        // Fallback: latest available global rate
+        const { data: latestRow, error: latestError } = await supabase
+          .from('fx_rates_global')
+          .select('rate, fetched_at, captured_date')
+          .eq('base_currency', 'USD')
+          .eq('quote_currency', 'EUR')
+          .order('fetched_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (!latestError && latestRow) {
+          return latestRow.rate as number;
+        }
+
+        if (latestError) {
+          console.error('FX global load error (latest):', latestError.message);
+        }
+
+        return null;
+      };
+
+      let ensuredDate: string | null = null;
+
+      if (typeof window !== 'undefined') {
+        try {
+          ensuredDate = window.localStorage.getItem('fx_ensured_date_usd_eur');
+        } catch {
+          // ignore localStorage errors
         }
       }
+
+      // If FX was already ensured today in this browser, just read from global table
+      if (ensuredDate === todayStr) {
+        const rate = await readLatestGlobalRate();
+        setFxRate(rate ?? null);
+        return;
+      }
+
+      // Otherwise, call ensure route once per day (per browser) and fallback to latest global rate on error
+      try {
+        const response = await fetch('/api/market/fx-ensure');
+
+        let data: any = null;
+        try {
+          data = await response.json();
+        } catch {
+          // If JSON parsing fails, treat as error
+        }
+
+        if (response.ok && data?.ok && typeof data.rate === 'number' && Number.isFinite(data.rate)) {
+          const rate = data.rate as number;
+
+          if (typeof window !== 'undefined') {
+            try {
+              window.localStorage.setItem('fx_ensured_date_usd_eur', todayStr);
+            } catch {
+              // ignore localStorage errors
+            }
+          }
+
+          setFxRate(rate);
+          return;
+        }
+
+        const errorMessage =
+          (data && (data.error as string | undefined)) ||
+          `FX ensure request failed with status ${response.status}`;
+        setFxError(errorMessage);
+        console.error('FX ensure error:', errorMessage, { status: response.status, body: data });
+      } catch (err) {
+        const errorMessage =
+          err instanceof Error ? err.message : 'Unexpected error while calling FX ensure';
+        setFxError(errorMessage);
+        console.error('FX ensure network error:', errorMessage);
+      }
+
+      // Fallback: try to read latest available global rate
+      const fallbackRate = await readLatestGlobalRate();
+      setFxRate(fallbackRate ?? null);
     } catch (err) {
       setFxRate(null);
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';

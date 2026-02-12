@@ -277,107 +277,112 @@ export default function SetupPage() {
     try {
       const todayStr = new Date().toISOString().slice(0, 10);
 
-      // First, fetch existing FX rate from fx_rates table (today's captured_date)
-      const { data: existingFxRate, error: fetchError } = await supabase
-        .from('fx_rates')
-        .select('rate, fetched_at')
-        .eq('user_id', userId)
-        .eq('base_currency', 'USD')
-        .eq('quote_currency', 'EUR')
-        .eq('captured_date', todayStr)
-        .single();
+      const readLatestGlobalRate = async (): Promise<number | null> => {
+        // First, try today's rate from fx_rates_global
+        const { data: todayRow, error: todayError } = await supabase
+          .from('fx_rates_global')
+          .select('rate, fetched_at, captured_date')
+          .eq('base_currency', 'USD')
+          .eq('quote_currency', 'EUR')
+          .eq('captured_date', todayStr)
+          .order('fetched_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
 
-      let refreshNeeded = false;
+        if (!todayError && todayRow) {
+          return todayRow.rate as number;
+        }
 
-      if (fetchError || !existingFxRate) {
-        // FX rate missing - refresh needed
-        refreshNeeded = true;
-      } else {
-        // Check if fetched_at is older than 24 hours
-        const fetchedAt = new Date(existingFxRate.fetched_at);
-        const now = new Date();
-        const hoursDiff = (now.getTime() - fetchedAt.getTime()) / (1000 * 60 * 60);
+        if (todayError) {
+          console.error('FX global load error (today):', todayError.message);
+        }
 
-        if (hoursDiff >= 24) {
-          refreshNeeded = true;
-        } else {
-          // Use existing rate (still fresh)
-          setFxRate(existingFxRate.rate);
+        // Fallback: latest available global rate
+        const { data: latestRow, error: latestError } = await supabase
+          .from('fx_rates_global')
+          .select('rate, fetched_at, captured_date')
+          .eq('base_currency', 'USD')
+          .eq('quote_currency', 'EUR')
+          .order('fetched_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (!latestError && latestRow) {
+          return latestRow.rate as number;
+        }
+
+        if (latestError) {
+          console.error('FX global load error (latest):', latestError.message);
+        }
+
+        return null;
+      };
+
+      let ensuredDate: string | null = null;
+
+      if (typeof window !== 'undefined') {
+        try {
+          ensuredDate = window.localStorage.getItem('fx_ensured_date_usd_eur');
+        } catch {
+          // ignore localStorage errors
+        }
+      }
+
+      // If FX was already ensured today in this browser, just read from global table
+      if (ensuredDate === todayStr) {
+        const rate = await readLatestGlobalRate();
+        setFxRate(rate ?? null);
+        setFxLoading(false);
+        return;
+      }
+
+      // Otherwise, call ensure route once per day (per browser) and fallback to latest global rate on error
+      try {
+        const response = await fetch('/api/market/fx-ensure');
+
+        let data: any = null;
+        try {
+          data = await response.json();
+        } catch {
+          // If JSON parsing fails, treat as error
+        }
+
+        if (response.ok && data?.ok && typeof data.rate === 'number' && Number.isFinite(data.rate)) {
+          const rate = data.rate as number;
+
+          if (typeof window !== 'undefined') {
+            try {
+              window.localStorage.setItem('fx_ensured_date_usd_eur', todayStr);
+            } catch {
+              // ignore localStorage errors
+            }
+          }
+
+          setFxRate(rate);
           setFxLoading(false);
           return;
         }
+
+        const errorMessage =
+          (data && (data.error as string | undefined)) ||
+          `FX ensure request failed with status ${response.status}`;
+        setFxError(errorMessage);
+        console.error('FX ensure error:', errorMessage, { status: response.status, body: data });
+      } catch (err) {
+        const errorMessage =
+          err instanceof Error ? err.message : 'Unexpected error while calling FX ensure';
+        setFxError(errorMessage);
+        console.error('FX ensure network error:', errorMessage);
       }
 
-      // Check if there's at least one USD account before refreshing
-      const hasUsdAccounts = accounts.some((acc) => (acc.currency || 'EUR') === 'USD');
-      if (!hasUsdAccounts) {
-        // No USD accounts, use existing rate if available, otherwise leave null
-        if (existingFxRate) {
-          setFxRate(existingFxRate.rate);
-        }
-        setFxLoading(false);
-        return;
-      }
-
-      // Refresh needed and USD accounts exist - fetch from Frankfurter
-      const response = await fetch('/api/market/fx');
-      const data = await response.json();
-
-      if (!data.ok) {
-        setFxError(data.error || 'Failed to fetch FX rate');
-        // Use existing rate if available, otherwise leave null
-        if (existingFxRate) {
-          setFxRate(existingFxRate.rate);
-        }
-        setFxLoading(false);
-        return;
-      }
-
-      // Upsert into fx_rates table
-      const nowIso = new Date().toISOString();
-      const { error: upsertError } = await supabase
-        .from('fx_rates')
-        .upsert(
-          {
-            user_id: userId,
-            base_currency: 'USD',
-            quote_currency: 'EUR',
-            rate: data.rate,
-            fetched_at: nowIso,
-            captured_date: todayStr,
-          },
-          {
-            onConflict: 'user_id,base_currency,quote_currency,captured_date',
-          }
-        );
-
-      if (upsertError) {
-        console.error('Error upserting FX rate:', { message: upsertError?.message, details: upsertError?.details, code: upsertError?.code, hint: upsertError?.hint });
-        setFxError('Failed to save FX rate');
-        // Use existing rate if available, otherwise use the fetched rate
-        setFxRate(existingFxRate?.rate || data.rate);
-        setFxLoading(false);
-        return;
-      }
-
-      // Re-fetch fx_rates row to ensure consistency
-      const { data: updatedFxRate, error: refetchError } = await supabase
-        .from('fx_rates')
-        .select('rate')
-        .eq('user_id', userId)
-        .eq('base_currency', 'USD')
-        .eq('quote_currency', 'EUR')
-        .eq('captured_date', todayStr)
-        .single();
-
-      if (refetchError || !updatedFxRate) {
-        // Fallback to the rate we just fetched
-        setFxRate(data.rate);
-      } else {
-        setFxRate(updatedFxRate.rate);
-      }
+      // Fallback: try to read latest available global rate
+      const fallbackRate = await readLatestGlobalRate();
+      setFxRate(fallbackRate ?? null);
     } catch (err) {
-      setFxError(err instanceof Error ? err.message : 'Failed to fetch FX rate');
+      setFxRate(null);
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      setFxError(errorMessage);
+      console.error('FX load error:', errorMessage);
     } finally {
       setFxLoading(false);
     }

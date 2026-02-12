@@ -94,7 +94,6 @@ interface HistoryRow {
 }
 
 interface FxRow {
-  user_id: string;
   base_currency: string;
   quote_currency: string;
   rate: number;
@@ -416,9 +415,8 @@ export default function StatsPage() {
           .gte('captured_date', fromDate)
           .lte('captured_date', toDate),
         supabase
-          .from('fx_rates')
-          .select('user_id, base_currency, quote_currency, rate, captured_date')
-          .eq('user_id', uid)
+          .from('fx_rates_global')
+          .select('base_currency, quote_currency, rate, captured_date')
           .eq('base_currency', 'USD')
           .eq('quote_currency', 'EUR')
           .gte('captured_date', fromDate)
@@ -440,7 +438,53 @@ export default function StatsPage() {
 
       setPositions((positionsRes.data || []) as PositionRow[]);
       setHistoryRows((historyRes.data || []) as HistoryRow[]);
-      setFxRows((fxRes.data || []) as FxRow[]);
+      
+      let fxData = (fxRes.data || []) as FxRow[];
+      
+      // Fallback: if FX series is empty, try to ensure today's rate and re-read
+      if (fxData.length === 0) {
+        try {
+          const todayStr = new Date().toISOString().slice(0, 10);
+          const ensureResponse = await fetch('/api/market/fx-ensure');
+          
+          if (ensureResponse.ok) {
+            const ensureData = await ensureResponse.json();
+            if (ensureData?.ok) {
+              // Re-read fx_rates_global for the date range (or at least today)
+              const fallbackFxRes = await supabase
+                .from('fx_rates_global')
+                .select('base_currency, quote_currency, rate, captured_date')
+                .eq('base_currency', 'USD')
+                .eq('quote_currency', 'EUR')
+                .gte('captured_date', fromDate)
+                .lte('captured_date', toDate);
+              
+              if (!fallbackFxRes.error && fallbackFxRes.data) {
+                fxData = fallbackFxRes.data as FxRow[];
+              } else {
+                // Last resort: try to get at least today's rate
+                const todayFxRes = await supabase
+                  .from('fx_rates_global')
+                  .select('base_currency, quote_currency, rate, captured_date')
+                  .eq('base_currency', 'USD')
+                  .eq('quote_currency', 'EUR')
+                  .eq('captured_date', todayStr)
+                  .order('fetched_at', { ascending: false })
+                  .limit(1);
+                
+                if (!todayFxRes.error && todayFxRes.data && todayFxRes.data.length > 0) {
+                  fxData = todayFxRes.data as FxRow[];
+                }
+              }
+            }
+          }
+        } catch (fallbackErr) {
+          // Silently ignore fallback errors - we'll work with empty fxData
+          console.error('FX fallback error:', fallbackErr);
+        }
+      }
+      
+      setFxRows(fxData);
     } catch (err) {
       setInvestmentError(err instanceof Error ? err.message : 'Failed to load investment data');
     } finally {
