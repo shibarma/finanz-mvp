@@ -1997,7 +1997,8 @@ export default function FinanceAppPage() {
         }
       }
     } else if (!isCreditRepayment) {
-      setFromAccountTransfer('');
+      // When not in credit repayment mode, keep transfer accounts fully user-controlled
+      // and only clear potential currency error.
       setTransferCurrencyError(null);
     }
   }, [isCreditRepayment, toAccountTransfer, accountsById]);
