@@ -311,6 +311,8 @@ export default function FinanceAppPage() {
     () => accounts.filter((a) => a.kind === 'crypto'),
     [accounts],
   );
+  const hasBroker = brokerAccounts.length > 0;
+  const hasCrypto = cryptoAccounts.length > 0;
   const cryptoAccountIds = useMemo(
     () => new Set(accounts.filter((a) => a.kind === 'crypto').map((a) => a.id)),
     [accounts],
@@ -529,6 +531,66 @@ export default function FinanceAppPage() {
       setInvestPricePerUnit('');
     }
   }, [investInstrument, positions]);
+
+  // Stabilize invest mode and related state based on available broker/crypto accounts
+  useEffect(() => {
+    // No invest accounts at all: reset mode and clear Invest Buy/Sell form state
+    if (!hasBroker && !hasCrypto) {
+      if (investMode !== 'Stocks') {
+        setInvestMode('Stocks');
+      }
+      if (
+        investBroker ||
+        investInstrument ||
+        investQuantity ||
+        investAmount ||
+        investPricePerUnit ||
+        investFee !== '0' ||
+        investComment ||
+        investInputMode !== 'quantity' ||
+        investSide !== 'Buy'
+      ) {
+        setInvestBroker('');
+        setInvestInstrument('');
+        setInvestQuantity('');
+        setInvestAmount('');
+        setInvestPricePerUnit('');
+        setInvestFee('0');
+        setInvestComment('');
+        setInvestInputMode('quantity');
+        setInvestSide('Buy');
+      }
+      return;
+    }
+
+    // If crypto mode becomes invalid (no crypto accounts) but broker exists, force Stocks
+    if (investMode === 'Crypto' && !hasCrypto && hasBroker) {
+      setInvestMode('Stocks');
+      setInvestBroker('');
+      setInvestInstrument('');
+      return;
+    }
+
+    // If stocks mode becomes invalid (no broker accounts) but crypto exists, force Crypto
+    if (investMode === 'Stocks' && !hasBroker && hasCrypto) {
+      setInvestMode('Crypto');
+      setInvestBroker('');
+      setInvestInstrument('');
+    }
+  }, [
+    hasBroker,
+    hasCrypto,
+    investMode,
+    investBroker,
+    investInstrument,
+    investQuantity,
+    investAmount,
+    investPricePerUnit,
+    investFee,
+    investComment,
+    investInputMode,
+    investSide,
+  ]);
 
   useEffect(() => {
     const init = async () => {
@@ -2413,324 +2475,330 @@ export default function FinanceAppPage() {
             </div>
 
             {/* Invest Buy / Sell */}
-            <div className="space-y-3 rounded-lg border border-neutral-200 p-4">
-              <h3 className="text-sm font-semibold text-neutral-900">Invest Buy / Sell</h3>
-              <div className="space-y-2">
-                <div>
-                  <span className="block text-xs font-medium text-neutral-700">Mode</span>
-                  <div className="mt-1 inline-flex rounded-lg border border-neutral-300 bg-neutral-50 p-0.5 text-xs">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setInvestMode('Stocks');
-                        setInvestBroker('');
+            {hasBroker || hasCrypto ? (
+              <div className="space-y-3 rounded-lg border border-neutral-200 p-4">
+                <h3 className="text-sm font-semibold text-neutral-900">Invest Buy / Sell</h3>
+                <div className="space-y-2">
+                  {hasBroker && hasCrypto && (
+                    <div>
+                      <span className="block text-xs font-medium text-neutral-700">Mode</span>
+                      <div className="mt-1 inline-flex rounded-lg border border-neutral-300 bg-neutral-50 p-0.5 text-xs">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setInvestMode('Stocks');
+                            setInvestBroker('');
+                            setInvestInstrument('');
+                          }}
+                          className={`px-3 py-1 rounded-md ${
+                            investMode === 'Stocks'
+                              ? 'bg-white text-neutral-900 shadow-sm'
+                              : 'text-neutral-600'
+                          }`}
+                        >
+                          Stocks
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setInvestMode('Crypto');
+                            setInvestBroker('');
+                            setInvestInstrument('');
+                          }}
+                          className={`px-3 py-1 rounded-md ${
+                            investMode === 'Crypto'
+                              ? 'bg-white text-neutral-900 shadow-sm'
+                              : 'text-neutral-600'
+                          }`}
+                        >
+                          Crypto
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  <div>
+                    <label className="block text-xs font-medium text-neutral-700">
+                      {investMode === 'Stocks' ? 'Broker account' : 'Crypto account'}
+                    </label>
+                    <select
+                      value={investBroker}
+                      onChange={(e) => {
+                        setInvestBroker(e.target.value);
                         setInvestInstrument('');
                       }}
-                      className={`px-3 py-1 rounded-md ${
-                        investMode === 'Stocks'
-                          ? 'bg-white text-neutral-900 shadow-sm'
-                          : 'text-neutral-600'
-                      }`}
+                      className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
                     >
-                      Stocks
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setInvestMode('Crypto');
-                        setInvestBroker('');
-                        setInvestInstrument('');
-                      }}
-                      className={`px-3 py-1 rounded-md ${
-                        investMode === 'Crypto'
-                          ? 'bg-white text-neutral-900 shadow-sm'
-                          : 'text-neutral-600'
-                      }`}
-                    >
-                      Crypto
-                    </button>
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-neutral-700">
-                    {investMode === 'Stocks' ? 'Broker account' : 'Crypto account'}
-                  </label>
-                  <select
-                    value={investBroker}
-                    onChange={(e) => {
-                      setInvestBroker(e.target.value);
-                      setInvestInstrument('');
-                    }}
-                    className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
-                  >
-                    <option value="">
-                      {investMode === 'Stocks' ? 'Select broker' : 'Select crypto account'}
-                    </option>
-                    {(investMode === 'Stocks' ? brokerAccounts : cryptoAccounts).map((acc) => (
-                      <option key={acc.id} value={acc.id}>
-                        {acc.name} {getCurrencySymbol(acc.currency)}
+                      <option value="">
+                        {investMode === 'Stocks' ? 'Select broker' : 'Select crypto account'}
                       </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-neutral-700">
-                    {investMode === 'Stocks' ? 'Instrument' : 'Crypto asset'}
-                  </label>
-                  <select
-                    value={investInstrument}
-                    onChange={(e) => setInvestInstrument(e.target.value)}
-                    disabled={!investBroker}
-                    className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200 disabled:bg-neutral-100"
-                  >
-                    <option value="">
-                      {investMode === 'Stocks' ? 'Select instrument' : 'Select crypto asset'}
-                    </option>
-                    {(investMode === 'Stocks' ? positionsByBroker : positionsByCryptoAccount).map(
-                      (pos) => (
-                        <option key={pos.id} value={pos.id}>
-                          {getPositionSymbol(pos)} (qty: {pos.quantity})
+                      {(investMode === 'Stocks' ? brokerAccounts : cryptoAccounts).map((acc) => (
+                        <option key={acc.id} value={acc.id}>
+                          {acc.name} {getCurrencySymbol(acc.currency)}
                         </option>
-                      ),
-                    )}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-neutral-700">Side</label>
-                  <select
-                    value={investSide}
-                    onChange={(e) => setInvestSide(e.target.value as 'Buy' | 'Sell')}
-                    className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
-                  >
-                    <option value="Buy">Buy</option>
-                    <option value="Sell">Sell</option>
-                  </select>
-                </div>
-                <div className="space-y-1">
-                  <span className="block text-xs font-medium text-neutral-700">Input mode</span>
-                  <div className="inline-flex rounded-lg border border-neutral-300 bg-neutral-50 p-0.5 text-xs">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setInvestInputMode('quantity');
-                      }}
-                      className={`px-3 py-1 rounded-md ${
-                        investInputMode === 'quantity'
-                          ? 'bg-white text-neutral-900 shadow-sm'
-                          : 'text-neutral-600'
-                      }`}
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-neutral-700">
+                      {investMode === 'Stocks' ? 'Instrument' : 'Crypto asset'}
+                    </label>
+                    <select
+                      value={investInstrument}
+                      onChange={(e) => setInvestInstrument(e.target.value)}
+                      disabled={!investBroker}
+                      className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200 disabled:bg-neutral-100"
                     >
-                      Quantity
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (investInputMode !== 'amount') {
-                          const { quantityParsed, priceParsed, feeParsed } = investParsed;
-                          if (
-                            quantityParsed.ok &&
-                            priceParsed.ok &&
-                            feeParsed.ok &&
-                            quantityParsed.value > 0 &&
-                            priceParsed.value > 0 &&
-                            feeParsed.value >= 0
-                          ) {
-                            const baseAmount =
-                              investSide === 'Buy'
-                                ? quantityParsed.value * priceParsed.value + feeParsed.value
-                                : quantityParsed.value * priceParsed.value - feeParsed.value;
-                            setInvestAmount(baseAmount.toString());
+                      <option value="">
+                        {investMode === 'Stocks' ? 'Select instrument' : 'Select crypto asset'}
+                      </option>
+                      {(investMode === 'Stocks' ? positionsByBroker : positionsByCryptoAccount).map(
+                        (pos) => (
+                          <option key={pos.id} value={pos.id}>
+                            {getPositionSymbol(pos)} (qty: {pos.quantity})
+                          </option>
+                        ),
+                      )}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-neutral-700">Side</label>
+                    <select
+                      value={investSide}
+                      onChange={(e) => setInvestSide(e.target.value as 'Buy' | 'Sell')}
+                      className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                    >
+                      <option value="Buy">Buy</option>
+                      <option value="Sell">Sell</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <span className="block text-xs font-medium text-neutral-700">Input mode</span>
+                    <div className="inline-flex rounded-lg border border-neutral-300 bg-neutral-50 p-0.5 text-xs">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setInvestInputMode('quantity');
+                        }}
+                        className={`px-3 py-1 rounded-md ${
+                          investInputMode === 'quantity'
+                            ? 'bg-white text-neutral-900 shadow-sm'
+                            : 'text-neutral-600'
+                        }`}
+                      >
+                        Quantity
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (investInputMode !== 'amount') {
+                            const { quantityParsed, priceParsed, feeParsed } = investParsed;
+                            if (
+                              quantityParsed.ok &&
+                              priceParsed.ok &&
+                              feeParsed.ok &&
+                              quantityParsed.value > 0 &&
+                              priceParsed.value > 0 &&
+                              feeParsed.value >= 0
+                            ) {
+                              const baseAmount =
+                                investSide === 'Buy'
+                                  ? quantityParsed.value * priceParsed.value + feeParsed.value
+                                  : quantityParsed.value * priceParsed.value - feeParsed.value;
+                              setInvestAmount(baseAmount.toString());
+                            }
+                          }
+                          setInvestInputMode('amount');
+                        }}
+                        className={`px-3 py-1 rounded-md ${
+                          investInputMode === 'amount'
+                            ? 'bg-white text-neutral-900 shadow-sm'
+                            : 'text-neutral-600'
+                        }`}
+                      >
+                        Amount
+                      </button>
+                    </div>
+                  </div>
+                  {investInputMode === 'quantity' ? (
+                    <div>
+                      <label className="block text-xs font-medium text-neutral-700">Quantity</label>
+                      <input
+                        type="text"
+                        value={investQuantity}
+                        onChange={(e) => setInvestQuantity(e.target.value)}
+                        className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                        placeholder="0"
+                      />
+                      <p className="mt-1 text-xs text-neutral-500">
+                        You can enter expressions: 5+6-2, supports + - * / ( )
+                      </p>
+                      {parseFloat(investQuantity) <= 0 && investQuantity !== '' && (
+                        <p className="mt-1 text-xs text-red-600">Quantity must be &gt; 0</p>
+                      )}
+                      {investSide === 'Sell' && investInstrument && (
+                        <p className="mt-1 text-xs text-neutral-500">
+                          For Sell, quantity must be ≤ current position (validated later)
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <div>
+                      <label className="block text-xs font-medium text-neutral-700">Amount</label>
+                      <input
+                        type="text"
+                        value={investAmount}
+                        onChange={(e) => setInvestAmount(e.target.value)}
+                        className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                        placeholder="0"
+                      />
+                      <p className="mt-1 text-xs text-neutral-500">
+                        You can enter expressions: 5+6-2, supports + - * / ( )
+                      </p>
+                      {investAmount.trim() !== '' && (() => {
+                        const { amountParsed, priceParsed, feeParsed } = investParsed;
+                        if (!amountParsed.ok) {
+                          return (
+                            <p className="mt-1 text-xs text-red-600">{amountParsed.error}</p>
+                          );
+                        }
+                        const amountVal = amountParsed.value;
+                        if (amountVal <= 0) {
+                          return (
+                            <p className="mt-1 text-xs text-red-600">Amount must be &gt; 0</p>
+                          );
+                        }
+                        if (priceParsed.ok && feeParsed.ok && priceParsed.value > 0) {
+                          const qtyRaw =
+                            investSide === 'Buy'
+                              ? (amountVal - feeParsed.value) / priceParsed.value
+                              : (amountVal + feeParsed.value) / priceParsed.value;
+                          if (!Number.isFinite(qtyRaw) || qtyRaw <= 0) {
+                            return (
+                              <p className="mt-1 text-xs text-red-600">
+                                Quantity must be &gt; 0
+                              </p>
+                            );
                           }
                         }
-                        setInvestInputMode('amount');
-                      }}
-                      className={`px-3 py-1 rounded-md ${
-                        investInputMode === 'amount'
-                          ? 'bg-white text-neutral-900 shadow-sm'
-                          : 'text-neutral-600'
-                      }`}
-                    >
-                      Amount
-                    </button>
-                  </div>
-                </div>
-                {investInputMode === 'quantity' ? (
+                        return null;
+                      })()}
+                    </div>
+                  )}
                   <div>
-                    <label className="block text-xs font-medium text-neutral-700">Quantity</label>
+                    <label className="block text-xs font-medium text-neutral-700">
+                      Price per unit
+                    </label>
                     <input
                       type="text"
-                      value={investQuantity}
-                      onChange={(e) => setInvestQuantity(e.target.value)}
+                      value={investPricePerUnit}
+                      onChange={(e) => setInvestPricePerUnit(e.target.value)}
                       className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
                       placeholder="0"
                     />
                     <p className="mt-1 text-xs text-neutral-500">
                       You can enter expressions: 5+6-2, supports + - * / ( )
                     </p>
-                    {parseFloat(investQuantity) <= 0 && investQuantity !== '' && (
-                      <p className="mt-1 text-xs text-red-600">Quantity must be &gt; 0</p>
-                    )}
-                    {investSide === 'Sell' && investInstrument && (
-                      <p className="mt-1 text-xs text-neutral-500">
-                        For Sell, quantity must be ≤ current position (validated later)
-                      </p>
-                    )}
                   </div>
-                ) : (
                   <div>
-                    <label className="block text-xs font-medium text-neutral-700">Amount</label>
+                    <label className="block text-xs font-medium text-neutral-700">
+                      Fee (optional)
+                    </label>
                     <input
                       type="text"
-                      value={investAmount}
-                      onChange={(e) => setInvestAmount(e.target.value)}
+                      value={investFee}
+                      onChange={(e) => setInvestFee(e.target.value)}
                       className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
                       placeholder="0"
                     />
-                    <p className="mt-1 text-xs text-neutral-500">
-                      You can enter expressions: 5+6-2, supports + - * / ( )
-                    </p>
-                    {investAmount.trim() !== '' && (() => {
-                      const { amountParsed, priceParsed, feeParsed } = investParsed;
-                      if (!amountParsed.ok) {
-                        return (
-                          <p className="mt-1 text-xs text-red-600">{amountParsed.error}</p>
-                        );
-                      }
-                      const amountVal = amountParsed.value;
-                      if (amountVal <= 0) {
-                        return (
-                          <p className="mt-1 text-xs text-red-600">Amount must be &gt; 0</p>
-                        );
-                      }
-                      if (
+                    {parseFloat(investFee) < 0 && investFee !== '' && (
+                      <p className="mt-1 text-xs text-red-600">Fee must be ≥ 0</p>
+                    )}
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-neutral-700">
+                      Comment (optional)
+                    </label>
+                    <input
+                      type="text"
+                      value={investComment}
+                      onChange={(e) => setInvestComment(e.target.value)}
+                      className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                      placeholder="Comment"
+                    />
+                  </div>
+                  {(() => {
+                    const { quantityParsed, amountParsed, priceParsed, feeParsed } = investParsed;
+
+                    const hasBrokerAndInstrument = investBroker && investInstrument;
+
+                    let inputOk = false;
+                    if (investInputMode === 'quantity') {
+                      inputOk = quantityParsed.ok && quantityParsed.value > 0;
+                    } else {
+                      inputOk = amountParsed.ok && amountParsed.value > 0;
+                    }
+
+                    const priceOk = priceParsed.ok && priceParsed.value > 0;
+                    const feeOk = feeParsed.ok && feeParsed.value >= 0;
+
+                    const valid = hasBrokerAndInstrument && inputOk && priceOk && feeOk;
+                    const canBuy = valid && investSide === 'Buy';
+                    const canSell = valid && investSide === 'Sell';
+
+                    let sellQtyOk = true;
+                    if (investSide === 'Sell' && investInstrument) {
+                      let quantityForCheck: number | null = null;
+
+                      if (investInputMode === 'quantity') {
+                        if (quantityParsed.ok && quantityParsed.value > 0) {
+                          quantityForCheck = quantityParsed.value;
+                        }
+                      } else if (
+                        amountParsed.ok &&
                         priceParsed.ok &&
                         feeParsed.ok &&
                         priceParsed.value > 0
                       ) {
                         const qtyRaw =
-                          investSide === 'Buy'
-                            ? (amountVal - feeParsed.value) / priceParsed.value
-                            : (amountVal + feeParsed.value) / priceParsed.value;
-                        if (!Number.isFinite(qtyRaw) || qtyRaw <= 0) {
-                          return (
-                            <p className="mt-1 text-xs text-red-600">
-                              Quantity must be &gt; 0
-                            </p>
-                          );
+                          (amountParsed.value + feeParsed.value) / priceParsed.value;
+                        if (Number.isFinite(qtyRaw) && qtyRaw > 0) {
+                          quantityForCheck = qtyRaw;
                         }
                       }
-                      return null;
-                    })()}
-                  </div>
-                )}
-                <div>
-                  <label className="block text-xs font-medium text-neutral-700">Price per unit</label>
-                  <input
-                    type="text"
-                    value={investPricePerUnit}
-                    onChange={(e) => setInvestPricePerUnit(e.target.value)}
-                    className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
-                    placeholder="0"
-                  />
-                  <p className="mt-1 text-xs text-neutral-500">
-                    You can enter expressions: 5+6-2, supports + - * / ( )
-                  </p>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-neutral-700">Fee (optional)</label>
-                  <input
-                    type="text"
-                    value={investFee}
-                    onChange={(e) => setInvestFee(e.target.value)}
-                    className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
-                    placeholder="0"
-                  />
-                  {parseFloat(investFee) < 0 && investFee !== '' && (
-                    <p className="mt-1 text-xs text-red-600">Fee must be ≥ 0</p>
-                  )}
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-neutral-700">Comment (optional)</label>
-                  <input
-                    type="text"
-                    value={investComment}
-                    onChange={(e) => setInvestComment(e.target.value)}
-                    className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
-                    placeholder="Comment"
-                  />
-                </div>
-                {(() => {
-                  const { quantityParsed, amountParsed, priceParsed, feeParsed } = investParsed;
 
-                  const hasBrokerAndInstrument = investBroker && investInstrument;
-
-                  let inputOk = false;
-                  if (investInputMode === 'quantity') {
-                    inputOk = quantityParsed.ok && quantityParsed.value > 0;
-                  } else {
-                    inputOk = amountParsed.ok && amountParsed.value > 0;
-                  }
-
-                  const priceOk = priceParsed.ok && priceParsed.value > 0;
-                  const feeOk = feeParsed.ok && feeParsed.value >= 0;
-
-                  const valid = hasBrokerAndInstrument && inputOk && priceOk && feeOk;
-                  const canBuy = valid && investSide === 'Buy';
-                  const canSell = valid && investSide === 'Sell';
-
-                  let sellQtyOk = true;
-                  if (investSide === 'Sell' && investInstrument) {
-                    let quantityForCheck: number | null = null;
-
-                    if (investInputMode === 'quantity') {
-                      if (quantityParsed.ok && quantityParsed.value > 0) {
-                        quantityForCheck = quantityParsed.value;
-                      }
-                    } else if (
-                      amountParsed.ok &&
-                      priceParsed.ok &&
-                      feeParsed.ok &&
-                      priceParsed.value > 0
-                    ) {
-                      const qtyRaw =
-                        (amountParsed.value + feeParsed.value) / priceParsed.value;
-                      if (Number.isFinite(qtyRaw) && qtyRaw > 0) {
-                        quantityForCheck = qtyRaw;
+                      if (quantityForCheck == null) {
+                        sellQtyOk = false;
+                      } else {
+                        const currentQty =
+                          positions.find((p) => p.id === investInstrument)?.quantity ?? 0;
+                        sellQtyOk = quantityForCheck <= currentQty;
                       }
                     }
 
-                    if (quantityForCheck == null) {
-                      sellQtyOk = false;
-                    } else {
-                      const currentQty =
-                        positions.find((p) => p.id === investInstrument)?.quantity ?? 0;
-                      sellQtyOk = quantityForCheck <= currentQty;
-                    }
-                  }
-
-                  return (
-                    <div className="flex flex-col gap-2 md:flex-row">
-                      <button
-                        type="button"
-                        onClick={() => handleInvestSubmit('Buy')}
-                        disabled={!canBuy || submittingInvest}
-                        className="w-full rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-neutral-400 md:w-auto"
-                      >
-                        {submittingInvest ? 'Saving...' : 'Submit Buy'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleInvestSubmit('Sell')}
-                        disabled={!canSell || !sellQtyOk || submittingInvest}
-                        className="w-full rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-neutral-400 md:w-auto"
-                      >
-                        {submittingInvest ? 'Saving...' : 'Submit Sell'}
-                      </button>
-                    </div>
-                  );
-                })()}
+                    return (
+                      <div className="flex flex-col gap-2 md:flex-row">
+                        <button
+                          type="button"
+                          onClick={() => handleInvestSubmit('Buy')}
+                          disabled={!canBuy || submittingInvest}
+                          className="w-full rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-neutral-400 md:w-auto"
+                        >
+                          {submittingInvest ? 'Saving...' : 'Submit Buy'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleInvestSubmit('Sell')}
+                          disabled={!canSell || !sellQtyOk || submittingInvest}
+                          className="w-full rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-neutral-400 md:w-auto"
+                        >
+                          {submittingInvest ? 'Saving...' : 'Submit Sell'}
+                        </button>
+                      </div>
+                    );
+                  })()}
+                </div>
               </div>
-            </div>
+            ) : null}
           </div>
         </section>
 
@@ -2762,30 +2830,38 @@ export default function FinanceAppPage() {
                 €{totals.cashEur.toFixed(2)}
               </p>
             </div>
-            <div>
-              <p className="text-xs text-neutral-600">Broker (EUR)</p>
-              <p className="text-2xl font-semibold text-neutral-900">
-                €{totals.brokerCashEur.toFixed(2)}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs text-neutral-600">Crypto (EUR)</p>
-              <p className="text-2xl font-semibold text-neutral-900">
-                €{totals.cryptoCashEur.toFixed(2)}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs text-neutral-600">Crypto assets (EUR)</p>
-              <p className="text-2xl font-semibold text-neutral-900">
-                €{totals.cryptoAssetsEur.toFixed(2)}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs text-neutral-600">Invest (EUR)</p>
-              <p className="text-2xl font-semibold text-neutral-900">
-                €{totals.investEur.toFixed(2)}
-              </p>
-            </div>
+            {hasBroker && (
+              <div>
+                <p className="text-xs text-neutral-600">Broker (EUR)</p>
+                <p className="text-2xl font-semibold text-neutral-900">
+                  €{totals.brokerCashEur.toFixed(2)}
+                </p>
+              </div>
+            )}
+            {hasCrypto && (
+              <div>
+                <p className="text-xs text-neutral-600">Crypto (EUR)</p>
+                <p className="text-2xl font-semibold text-neutral-900">
+                  €{totals.cryptoCashEur.toFixed(2)}
+                </p>
+              </div>
+            )}
+            {hasCrypto && (
+              <div>
+                <p className="text-xs text-neutral-600">Crypto assets (EUR)</p>
+                <p className="text-2xl font-semibold text-neutral-900">
+                  €{totals.cryptoAssetsEur.toFixed(2)}
+                </p>
+              </div>
+            )}
+            {hasBroker && (
+              <div>
+                <p className="text-xs text-neutral-600">Invest (EUR)</p>
+                <p className="text-2xl font-semibold text-neutral-900">
+                  €{totals.investEur.toFixed(2)}
+                </p>
+              </div>
+            )}
           </div>
           {totals.usdExcludedFromTotals && (
             <p className="mt-2 text-xs text-yellow-700">
@@ -3242,90 +3318,92 @@ export default function FinanceAppPage() {
         </section>
 
         {/* Securities trades */}
-        <section className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm md:p-6">
-          <h2 className="mb-4 text-lg font-semibold text-neutral-900">
-            Recent trades
-          </h2>
-          {tradeDeleteMessage && (
-            <div
-              className={`mb-4 rounded-lg px-4 py-3 text-sm ${
-                tradeDeleteMessage.type === 'success'
-                  ? 'bg-emerald-50 text-emerald-700'
-                  : 'bg-red-50 text-red-700'
-              }`}
-            >
-              {tradeDeleteMessage.text}
-            </div>
-          )}
-          {investmentTrades.length === 0 ? (
-            <p className="text-sm text-neutral-600">No securities trades.</p>
-          ) : (
-            <div className="space-y-2">
-              {investmentTrades.map((trade) => {
-                const brokerAccount = accountsById.get(trade.broker_account_id);
-                const position = positions.find((p) => p.id === trade.position_id);
-                const symbol = position ? getPositionSymbol(position) : '—';
-                const currency = (brokerAccount?.currency || 'EUR') as AccountCurrency;
-                const curSym = getCurrencySymbol(currency);
-                return (
-                  <div
-                    key={trade.id}
-                    className="flex items-center justify-between rounded-lg border border-neutral-200 px-4 py-3"
-                  >
-                    <div className="flex items-center gap-3">
-                      <span
-                        className={`flex h-9 w-9 items-center justify-center rounded-full text-sm font-semibold ${
-                          trade.side === 'buy' ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'
-                        }`}
-                      >
-                        {trade.side === 'buy' ? 'B' : 'S'}
-                      </span>
-                      <div>
-                        <p className="text-sm font-medium text-neutral-900">
-                          {trade.side === 'buy' ? 'Buy' : 'Sell'} {symbol} × {trade.quantity}
-                        </p>
-                        <div className="text-xs text-neutral-600">
-                          {brokerAccount?.name ?? '—'} • {trade.price_per_unit} {curSym}/unit
-                          {trade.fee > 0 && ` • fee ${trade.fee} ${curSym}`}
+        {(hasBroker || hasCrypto) && (
+          <section className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm md:p-6">
+            <h2 className="mb-4 text-lg font-semibold text-neutral-900">
+              Recent trades
+            </h2>
+            {tradeDeleteMessage && (
+              <div
+                className={`mb-4 rounded-lg px-4 py-3 text-sm ${
+                  tradeDeleteMessage.type === 'success'
+                    ? 'bg-emerald-50 text-emerald-700'
+                    : 'bg-red-50 text-red-700'
+                }`}
+              >
+                {tradeDeleteMessage.text}
+              </div>
+            )}
+            {investmentTrades.length === 0 ? (
+              <p className="text-sm text-neutral-600">No securities trades.</p>
+            ) : (
+              <div className="space-y-2">
+                {investmentTrades.map((trade) => {
+                  const brokerAccount = accountsById.get(trade.broker_account_id);
+                  const position = positions.find((p) => p.id === trade.position_id);
+                  const symbol = position ? getPositionSymbol(position) : '—';
+                  const currency = (brokerAccount?.currency || 'EUR') as AccountCurrency;
+                  const curSym = getCurrencySymbol(currency);
+                  return (
+                    <div
+                      key={trade.id}
+                      className="flex items-center justify-between rounded-lg border border-neutral-200 px-4 py-3"
+                    >
+                      <div className="flex items-center gap-3">
+                        <span
+                          className={`flex h-9 w-9 items-center justify-center rounded-full text-sm font-semibold ${
+                            trade.side === 'buy' ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'
+                          }`}
+                        >
+                          {trade.side === 'buy' ? 'B' : 'S'}
+                        </span>
+                        <div>
+                          <p className="text-sm font-medium text-neutral-900">
+                            {trade.side === 'buy' ? 'Buy' : 'Sell'} {symbol} × {trade.quantity}
+                          </p>
+                          <div className="text-xs text-neutral-600">
+                            {brokerAccount?.name ?? '—'} • {trade.price_per_unit} {curSym}/unit
+                            {trade.fee > 0 && ` • fee ${trade.fee} ${curSym}`}
+                          </div>
+                          <p className="text-xs text-neutral-500">
+                            {new Date(trade.created_at).toLocaleString('ru-RU', {
+                              day: '2-digit',
+                              month: '2-digit',
+                              year: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
+                          </p>
+                          {trade.comment && (
+                            <p className="mt-1 text-xs text-neutral-500">{trade.comment}</p>
+                          )}
                         </div>
-                        <p className="text-xs text-neutral-500">
-                          {new Date(trade.created_at).toLocaleString('ru-RU', {
-                            day: '2-digit',
-                            month: '2-digit',
-                            year: 'numeric',
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <p className="text-base font-semibold text-neutral-900">
+                          {formatMoney(trade.total_amount, currency)}
                         </p>
-                        {trade.comment && (
-                          <p className="mt-1 text-xs text-neutral-500">{trade.comment}</p>
-                        )}
+                        <button
+                          onClick={() => handleEditInvestmentTrade(trade)}
+                          className="rounded-lg border border-neutral-300 px-2 py-1 text-xs font-medium text-neutral-700 transition hover:bg-neutral-100"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => handleDeleteInvestmentTrade(trade)}
+                          disabled={deletingTradeId === trade.id}
+                          className="rounded-lg border border-red-300 px-2 py-1 text-xs font-medium text-red-700 transition hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {deletingTradeId === trade.id ? '…' : 'Delete'}
+                        </button>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <p className="text-base font-semibold text-neutral-900">
-                        {formatMoney(trade.total_amount, currency)}
-                      </p>
-                      <button
-                        onClick={() => handleEditInvestmentTrade(trade)}
-                        className="rounded-lg border border-neutral-300 px-2 py-1 text-xs font-medium text-neutral-700 transition hover:bg-neutral-100"
-                      >
-                        Edit
-                      </button>
-                      <button
-                        onClick={() => handleDeleteInvestmentTrade(trade)}
-                        disabled={deletingTradeId === trade.id}
-                        className="rounded-lg border border-red-300 px-2 py-1 text-xs font-medium text-red-700 transition hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {deletingTradeId === trade.id ? '…' : 'Delete'}
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </section>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        )}
 
         {/* Модальное окно редактирования сделки */}
         {editingTradeId && (() => {
