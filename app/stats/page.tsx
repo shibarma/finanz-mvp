@@ -1212,11 +1212,20 @@ export default function StatsPage() {
   const instrumentCurrency =
     uniqueInstruments.find((i) => i.id === selectedInstrumentId)?.currency ?? 'EUR';
 
+  // Broker / crypto accounts
+  const brokerAccounts = useMemo(
+    () => accounts.filter((a) => a.kind === 'broker'),
+    [accounts],
+  );
+
   // Crypto portfolio trend (all crypto accounts or specific crypto account)
   const cryptoAccounts = useMemo(
     () => accounts.filter((a) => a.kind === 'crypto'),
     [accounts],
   );
+
+  const hasBroker = brokerAccounts.length > 0;
+  const hasCrypto = cryptoAccounts.length > 0;
 
   const [selectedCryptoAccountId, setSelectedCryptoAccountId] = useState<string>('');
 
@@ -1525,13 +1534,15 @@ export default function StatsPage() {
             <p className="text-sm text-neutral-600">Income and expense analysis</p>
           </div>
           <div className="flex flex-wrap gap-2 md:gap-3">
-            <button
-              onClick={handleManualRefresh}
-              disabled={refreshLoading}
-              className="w-full rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-800 transition hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-60 md:w-auto"
-            >
-              🔄 Refresh prices
-            </button>
+            {(hasBroker || hasCrypto) && (
+              <button
+                onClick={handleManualRefresh}
+                disabled={refreshLoading}
+                className="w-full rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-800 transition hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-60 md:w-auto"
+              >
+                🔄 Refresh prices
+              </button>
+            )}
             <button
               onClick={() => router.push('/app')}
               className="w-full rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-800 transition hover:bg-neutral-100 md:w-auto"
@@ -1662,71 +1673,81 @@ export default function StatsPage() {
         </section>
 
         {/* Period summary — investment trades (cashflow) */}
-        <section className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm md:p-6">
-          <h2 className="mb-4 text-lg font-semibold text-neutral-900">
-            Period summary — investment trades (cashflow)
-          </h2>
-          <div className="grid gap-4 md:grid-cols-2">
-            <div>
-              <h3 className="mb-2 text-sm font-semibold text-neutral-900">Stocks / ETFs</h3>
-              <div className="grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-4">
+        {(hasBroker || hasCrypto) && (
+          <section className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm md:p-6">
+            <h2 className="mb-4 text-lg font-semibold text-neutral-900">
+              Period summary — investment trades (cashflow)
+            </h2>
+            <div
+              className={
+                hasBroker && hasCrypto ? 'grid gap-4 md:grid-cols-2' : 'grid gap-4'
+              }
+            >
+              {hasBroker && (
                 <div>
-                  <p className="text-xs text-neutral-600">Total Buy</p>
-                  <p className="text-2xl font-semibold text-red-700">
-                    {formatMoney(investmentPeriodSummaryStocks.totalBuy)}
-                  </p>
+                  <h3 className="mb-2 text-sm font-semibold text-neutral-900">Stocks / ETFs</h3>
+                  <div className="grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-4">
+                    <div>
+                      <p className="text-xs text-neutral-600">Total Buy</p>
+                      <p className="text-2xl font-semibold text-red-700">
+                        {formatMoney(investmentPeriodSummaryStocks.totalBuy)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-neutral-600">Total Sell</p>
+                      <p className="text-2xl font-semibold text-emerald-700">
+                        {formatMoney(investmentPeriodSummaryStocks.totalSell)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-neutral-600">Net cashflow</p>
+                      <p
+                        className={`text-2xl font-semibold ${
+                          investmentPeriodSummaryStocks.netCashflow >= 0
+                            ? 'text-emerald-700'
+                            : 'text-red-700'
+                        }`}
+                      >
+                        {formatMoney(investmentPeriodSummaryStocks.netCashflow)}
+                      </p>
+                    </div>
+                  </div>
                 </div>
+              )}
+              {hasCrypto && (
                 <div>
-                  <p className="text-xs text-neutral-600">Total Sell</p>
-                  <p className="text-2xl font-semibold text-emerald-700">
-                    {formatMoney(investmentPeriodSummaryStocks.totalSell)}
-                  </p>
+                  <h3 className="mb-2 text-sm font-semibold text-neutral-900">Crypto</h3>
+                  <div className="grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-4">
+                    <div>
+                      <p className="text-xs text-neutral-600">Total Buy</p>
+                      <p className="text-2xl font-semibold text-red-700">
+                        {formatMoney(investmentPeriodSummaryCrypto.totalBuy)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-neutral-600">Total Sell</p>
+                      <p className="text-2xl font-semibold text-emerald-700">
+                        {formatMoney(investmentPeriodSummaryCrypto.totalSell)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-neutral-600">Net cashflow</p>
+                      <p
+                        className={`text-2xl font-semibold ${
+                          investmentPeriodSummaryCrypto.netCashflow >= 0
+                            ? 'text-emerald-700'
+                            : 'text-red-700'
+                        }`}
+                      >
+                        {formatMoney(investmentPeriodSummaryCrypto.netCashflow)}
+                      </p>
+                    </div>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-xs text-neutral-600">Net cashflow</p>
-                  <p
-                    className={`text-2xl font-semibold ${
-                      investmentPeriodSummaryStocks.netCashflow >= 0
-                        ? 'text-emerald-700'
-                        : 'text-red-700'
-                    }`}
-                  >
-                    {formatMoney(investmentPeriodSummaryStocks.netCashflow)}
-                  </p>
-                </div>
-              </div>
+              )}
             </div>
-            <div>
-              <h3 className="mb-2 text-sm font-semibold text-neutral-900">Crypto</h3>
-              <div className="grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-4">
-                <div>
-                  <p className="text-xs text-neutral-600">Total Buy</p>
-                  <p className="text-2xl font-semibold text-red-700">
-                    {formatMoney(investmentPeriodSummaryCrypto.totalBuy)}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs text-neutral-600">Total Sell</p>
-                  <p className="text-2xl font-semibold text-emerald-700">
-                    {formatMoney(investmentPeriodSummaryCrypto.totalSell)}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs text-neutral-600">Net cashflow</p>
-                  <p
-                    className={`text-2xl font-semibold ${
-                      investmentPeriodSummaryCrypto.netCashflow >= 0
-                        ? 'text-emerald-700'
-                        : 'text-red-700'
-                    }`}
-                  >
-                    {formatMoney(investmentPeriodSummaryCrypto.netCashflow)}
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
+          </section>
+        )}
 
         {/* Budgets */}
         <section className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm md:p-6">
@@ -2093,6 +2114,7 @@ export default function StatsPage() {
         </section>
 
         {/* Investments */}
+        {hasBroker && (
         <section className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm md:p-6">
           <h2 className="mb-4 text-lg font-semibold text-neutral-900">Investments</h2>
           {investmentError && (
@@ -2244,8 +2266,10 @@ export default function StatsPage() {
             </div>
           )}
         </section>
+        )}
 
         {/* Crypto portfolio trend */}
+        {hasCrypto && (
         <section className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm md:p-6">
           <h2 className="mb-4 text-lg font-semibold text-neutral-900">Crypto portfolio</h2>
           <div className="mb-4">
@@ -2358,8 +2382,10 @@ export default function StatsPage() {
             </div>
           )}
         </section>
+        )}
 
         {/* Instrument price trend */}
+        {hasBroker && (
         <section className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm md:p-6">
           <h2 className="mb-4 text-lg font-semibold text-neutral-900">Instrument price trend</h2>
           <div className="mb-4">
@@ -2424,8 +2450,10 @@ export default function StatsPage() {
             </>
           )}
         </section>
+        )}
 
         {/* Crypto instrument price trend */}
+        {hasCrypto && (
         <section className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm md:p-6">
           <h2 className="mb-4 text-lg font-semibold text-neutral-900">Crypto asset price trend</h2>
           <div className="mb-4">
@@ -2492,6 +2520,7 @@ export default function StatsPage() {
             </>
           )}
         </section>
+        )}
       </div>
     </div>
   );

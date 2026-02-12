@@ -2082,13 +2082,15 @@ export default function FinanceAppPage() {
             <p className="text-sm text-neutral-600">Finance management</p>
           </div>
           <div className="flex flex-wrap gap-2 md:gap-3">
-            <button
-              onClick={handleManualRefresh}
-              disabled={refreshLoading}
-              className="w-full rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-800 transition hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-60 md:w-auto"
-            >
-              🔄 Refresh prices
-            </button>
+            {hasBroker || hasCrypto ? (
+              <button
+                onClick={handleManualRefresh}
+                disabled={refreshLoading}
+                className="w-full rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-800 transition hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-60 md:w-auto"
+              >
+                🔄 Refresh prices
+              </button>
+            ) : null}
             <button
               onClick={() => router.push('/setup')}
               className="w-full rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-800 transition hover:bg-neutral-100 md:w-auto"
@@ -2140,7 +2142,11 @@ export default function FinanceAppPage() {
         <section className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm md:p-6">
           <h2 className="mb-4 text-lg font-semibold text-neutral-900">Operations</h2>
 
-          <div className="grid gap-6 md:grid-cols-4">
+          <div
+            className={
+              hasBroker || hasCrypto ? 'grid gap-6 md:grid-cols-4' : 'grid gap-6 md:grid-cols-3'
+            }
+          >
             {/* Income */}
             <div className="space-y-3 rounded-lg border border-neutral-200 p-4">
               <h3 className="text-sm font-semibold text-neutral-900">Income</h3>

@@ -1497,6 +1497,9 @@ export default function SetupPage() {
     [accounts],
   );
 
+  const hasBroker = brokerAccounts.length > 0;
+  const hasCrypto = cryptoAccounts.length > 0;
+
   // Map category_id -> budget name (for "already in X" display)
   const categoryToBudgetMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -1521,6 +1524,38 @@ export default function SetupPage() {
     });
     return list;
   }, [categoryToBudgetIdsMap, categories, budgets]);
+
+  // Stabilize selected broker / crypto accounts when accounts list changes
+  useEffect(() => {
+    // Broker
+    if (!hasBroker && selectedBrokerAccountId) {
+      setSelectedBrokerAccountId('');
+    } else if (
+      hasBroker &&
+      selectedBrokerAccountId &&
+      !brokerAccounts.some((a) => a.id === selectedBrokerAccountId)
+    ) {
+      setSelectedBrokerAccountId('');
+    }
+
+    // Crypto
+    if (!hasCrypto && selectedCryptoAccountId) {
+      setSelectedCryptoAccountId('');
+    } else if (
+      hasCrypto &&
+      selectedCryptoAccountId &&
+      !cryptoAccounts.some((a) => a.id === selectedCryptoAccountId)
+    ) {
+      setSelectedCryptoAccountId('');
+    }
+  }, [
+    hasBroker,
+    hasCrypto,
+    brokerAccounts,
+    cryptoAccounts,
+    selectedBrokerAccountId,
+    selectedCryptoAccountId,
+  ]);
 
   const loadPositions = async () => {
     if (!selectedBrokerAccountId || !userId) {
@@ -2262,13 +2297,15 @@ export default function SetupPage() {
             <p className="text-sm text-neutral-600">Manage accounts and categories</p>
           </div>
           <div className="flex flex-wrap gap-2 md:gap-3">
-            <button
-              onClick={handleManualRefresh}
-              disabled={refreshLoading}
-              className="w-full rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-800 transition hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-60 md:w-auto"
-            >
-              🔄 Refresh prices
-            </button>
+            {hasBroker || hasCrypto ? (
+              <button
+                onClick={handleManualRefresh}
+                disabled={refreshLoading}
+                className="w-full rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-800 transition hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-60 md:w-auto"
+              >
+                🔄 Refresh prices
+              </button>
+            ) : null}
             <button
               onClick={() => router.push('/app')}
               className="w-full rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-800 transition hover:bg-neutral-100 md:w-auto"
@@ -3443,6 +3480,7 @@ export default function SetupPage() {
         </section>
 
         {/* Investments/Positions block */}
+        {hasBroker && (
         <section className="flex flex-col gap-4 rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm md:p-6">
           <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
             <h2 className="text-lg font-semibold text-neutral-900">Investments / Positions</h2>
@@ -3793,8 +3831,10 @@ export default function SetupPage() {
               </>
             ) : null}
           </section>
+        )}
 
         {/* Crypto / Positions block */}
+        {hasCrypto && (
         <section className="flex flex-col gap-4 rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm md:p-6">
           <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
             <h2 className="text-lg font-semibold text-neutral-900">Crypto / Positions</h2>
@@ -4226,6 +4266,7 @@ export default function SetupPage() {
             </>
           ) : null}
         </section>
+        )}
 
         {/* Danger Zone */}
         <section className="rounded-2xl border-2 border-red-200 bg-red-50 p-4 shadow-sm md:p-6">
