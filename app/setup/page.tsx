@@ -275,13 +275,13 @@ export default function SetupPage() {
     setFxError(null);
 
     try {
-      const todayStr = new Date().toISOString().slice(0, 10);
+      const todayStr = new Date().toISOString().slice(0, 10); // UTC YYYY-MM-DD
 
+      // Helper: read rate from fx_rates_global (today first, then latest by fetched_at)
       const readLatestGlobalRate = async (): Promise<number | null> => {
-        // First, try today's rate from fx_rates_global
         const { data: todayRow, error: todayError } = await supabase
           .from('fx_rates_global')
-          .select('rate, fetched_at, captured_date')
+          .select('rate, fetched_at')
           .eq('base_currency', 'USD')
           .eq('quote_currency', 'EUR')
           .eq('captured_date', todayStr)
@@ -289,100 +289,91 @@ export default function SetupPage() {
           .limit(1)
           .maybeSingle();
 
-        if (!todayError && todayRow) {
-          return todayRow.rate as number;
-        }
+        if (!todayError && todayRow) return todayRow.rate as number;
+        if (todayError) console.error('FX global load error (today):', todayError.message);
 
-        if (todayError) {
-          console.error('FX global load error (today):', todayError.message);
-        }
-
-        // Fallback: latest available global rate
         const { data: latestRow, error: latestError } = await supabase
           .from('fx_rates_global')
-          .select('rate, fetched_at, captured_date')
+          .select('rate, fetched_at')
           .eq('base_currency', 'USD')
           .eq('quote_currency', 'EUR')
           .order('fetched_at', { ascending: false })
           .limit(1)
           .maybeSingle();
 
-        if (!latestError && latestRow) {
-          return latestRow.rate as number;
-        }
-
-        if (latestError) {
-          console.error('FX global load error (latest):', latestError.message);
-        }
-
+        if (!latestError && latestRow) return latestRow.rate as number;
+        if (latestError) console.error('FX global load error (latest):', latestError.message);
         return null;
       };
 
-      let ensuredDate: string | null = null;
+      // 1) Read today's row from fx_rates_global (USD, EUR, captured_date=todayStr)
+      const { data: todayRow, error: todayError } = await supabase
+        .from('fx_rates_global')
+        .select('rate, fetched_at')
+        .eq('base_currency', 'USD')
+        .eq('quote_currency', 'EUR')
+        .eq('captured_date', todayStr)
+        .order('fetched_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
-      if (typeof window !== 'undefined') {
-        try {
-          ensuredDate = window.localStorage.getItem('fx_ensured_date_usd_eur');
-        } catch {
-          // ignore localStorage errors
-        }
+      const hasUsdAccounts = accounts.some((acc) => (acc.currency || 'EUR') === 'USD');
+      const hasValidTodayRow =
+        !todayError &&
+        todayRow &&
+        todayRow.fetched_at &&
+        (() => {
+          const fetchedAt = new Date(todayRow.fetched_at as string);
+          const hoursDiff = (Date.now() - fetchedAt.getTime()) / (1000 * 60 * 60);
+          return hoursDiff < 24;
+        })();
+
+      if (hasValidTodayRow) {
+        setFxRate(todayRow!.rate as number);
+        setFxLoading(false);
+        return;
       }
 
-      // If FX was already ensured today in this browser, just read from global table
-      if (ensuredDate === todayStr) {
+      // 2) No row or fetched_at older than 24h — ensure only if user has USD accounts
+      if (!hasUsdAccounts) {
         const rate = await readLatestGlobalRate();
         setFxRate(rate ?? null);
         setFxLoading(false);
         return;
       }
 
-      // Otherwise, call ensure route once per day (per browser) and fallback to latest global rate on error
+      // 3) Call /api/market/fx-ensure (writes to fx_rates_global with onConflict base_currency, quote_currency, captured_date)
       try {
         const response = await fetch('/api/market/fx-ensure');
-
         let data: any = null;
         try {
           data = await response.json();
         } catch {
-          // If JSON parsing fails, treat as error
+          // ignore JSON parse error
         }
 
         if (response.ok && data?.ok && typeof data.rate === 'number' && Number.isFinite(data.rate)) {
-          const rate = data.rate as number;
-
-          if (typeof window !== 'undefined') {
-            try {
-              window.localStorage.setItem('fx_ensured_date_usd_eur', todayStr);
-            } catch {
-              // ignore localStorage errors
-            }
-          }
-
-          setFxRate(rate);
+          setFxRate(data.rate);
           setFxLoading(false);
           return;
         }
 
-        const errorMessage =
+        setFxError(
           (data && (data.error as string | undefined)) ||
-          `FX ensure request failed with status ${response.status}`;
-        setFxError(errorMessage);
-        console.error('FX ensure error:', errorMessage, { status: response.status, body: data });
+            `FX ensure failed with status ${response.status}`,
+        );
+        console.error('FX ensure error:', { status: response.status, body: data });
       } catch (err) {
-        const errorMessage =
-          err instanceof Error ? err.message : 'Unexpected error while calling FX ensure';
-        setFxError(errorMessage);
-        console.error('FX ensure network error:', errorMessage);
+        setFxError(err instanceof Error ? err.message : 'Unexpected error calling FX ensure');
+        console.error('FX ensure network error:', err);
       }
 
-      // Fallback: try to read latest available global rate
       const fallbackRate = await readLatestGlobalRate();
       setFxRate(fallbackRate ?? null);
     } catch (err) {
       setFxRate(null);
-      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-      setFxError(errorMessage);
-      console.error('FX load error:', errorMessage);
+      setFxError(err instanceof Error ? err.message : 'Unknown error');
+      console.error('FX load error:', err);
     } finally {
       setFxLoading(false);
     }

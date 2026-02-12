@@ -182,6 +182,7 @@ export default function StatsPage() {
     skipped: number;
     errors: number;
   } | null>(null);
+  const [refreshTick, setRefreshTick] = useState(0);
 
   // Период
   const [dateFrom, setDateFrom] = useState<string>('');
@@ -246,7 +247,7 @@ export default function StatsPage() {
   useEffect(() => {
     if (!userId || !dateFrom || !dateTo) return;
     loadInvestmentData(userId, dateFrom, dateTo);
-  }, [userId, dateFrom, dateTo]);
+  }, [userId, dateFrom, dateTo, refreshTick]);
 
   const handleManualRefresh = async () => {
     if (!sessionToken) {
@@ -280,6 +281,7 @@ export default function StatsPage() {
         skipped: data.skipped ?? 0,
         errors: Array.isArray(data.errors) ? data.errors.length : data.errors_count ?? 0,
       });
+      setRefreshTick((x) => x + 1);
     } catch (err) {
       setRefreshError(err instanceof Error ? err.message : 'Unexpected error while refreshing prices');
     } finally {

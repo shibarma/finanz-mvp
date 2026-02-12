@@ -482,7 +482,7 @@ export async function refreshPricesEngine(
     summary.updated += 1;
   }
 
-  // --- C) Refresh FX rate USD→EUR for this user (once per day) ---
+  // --- C) Refresh FX rate USD→EUR in fx_rates_global (once per day when user has USD accounts) ---
   try {
     const { data: usdAccounts, error: usdAccountsError } = await supabaseAdmin
       .from('accounts')
@@ -494,12 +494,12 @@ export async function refreshPricesEngine(
     if (usdAccountsError) {
       summary.fxSkipped = true;
       summary.errors.push({
-        scope: 'fx_rates',
+        scope: 'fx_rates_global',
         reason: 'Failed to check USD accounts for user',
         error: usdAccountsError.message,
       });
     } else if (!usdAccounts || usdAccounts.length === 0) {
-      // No USD accounts – FX not needed
+      // No USD accounts – FX not needed for this user
       summary.fxSkipped = true;
     } else {
       const frankfurterUrl = 'https://api.frankfurter.dev/v1/latest?base=USD';
@@ -513,7 +513,7 @@ export async function refreshPricesEngine(
       } catch {
         summary.fxSkipped = true;
         summary.errors.push({
-          scope: 'fx_rates',
+          scope: 'fx_rates_global',
           status: fxResponse.status,
           reason: 'Failed to parse FX API response JSON',
           body: fxBodyText.slice(0, 300),
@@ -524,7 +524,7 @@ export async function refreshPricesEngine(
         if (!fxResponse.ok) {
           summary.fxSkipped = true;
           summary.errors.push({
-            scope: 'fx_rates',
+            scope: 'fx_rates_global',
             status: fxResponse.status,
             reason: 'Frankfurter API request failed',
             body: JSON.stringify(fxData).slice(0, 300),
@@ -538,20 +538,19 @@ export async function refreshPricesEngine(
           ) {
             summary.fxSkipped = true;
             summary.errors.push({
-              scope: 'fx_rates',
+              scope: 'fx_rates_global',
               status: fxResponse.status,
               reason: 'Invalid or missing rates.EUR',
               body: JSON.stringify(fxData).slice(0, 300),
             });
           } else {
             const nowIso = new Date().toISOString();
-            const capturedDate = nowIso.slice(0, 10); // YYYY-MM-DD
+            const capturedDate = nowIso.slice(0, 10); // YYYY-MM-DD UTC
 
             const { error: fxUpsertError } = await supabaseAdmin
-              .from('fx_rates')
+              .from('fx_rates_global')
               .upsert(
                 {
-                  user_id: userId,
                   base_currency: 'USD',
                   quote_currency: 'EUR',
                   rate,
@@ -559,16 +558,15 @@ export async function refreshPricesEngine(
                   captured_date: capturedDate,
                 },
                 {
-                  onConflict: 'user_id,base_currency,quote_currency,captured_date',
+                  onConflict: 'base_currency,quote_currency,captured_date',
                 },
               );
 
             if (fxUpsertError) {
               summary.fxSkipped = true;
               summary.errors.push({
-                scope: 'fx_rates',
-                user_id: userId,
-                reason: 'Failed to upsert FX rate for user',
+                scope: 'fx_rates_global',
+                reason: 'Failed to upsert FX rate to global table',
                 error: fxUpsertError.message,
               });
             } else {
@@ -581,8 +579,8 @@ export async function refreshPricesEngine(
   } catch (err) {
     summary.fxSkipped = true;
     summary.errors.push({
-      scope: 'fx_rates',
-      reason: 'Unexpected error while refreshing FX rate for user',
+      scope: 'fx_rates_global',
+      reason: 'Unexpected error while refreshing FX rate (global)',
       error: err instanceof Error ? err.message : 'Unknown error',
     });
   }

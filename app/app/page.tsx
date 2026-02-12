@@ -764,10 +764,10 @@ export default function FinanceAppPage() {
       const todayStr = new Date().toISOString().slice(0, 10);
 
       const readLatestGlobalRate = async (): Promise<number | null> => {
-        // First, try today's rate from fx_rates_global
+        // First: today's rate from fx_rates_global (base_currency='USD', quote_currency='EUR', captured_date=todayStr)
         const { data: todayRow, error: todayError } = await supabase
           .from('fx_rates_global')
-          .select('rate, fetched_at, captured_date')
+          .select('rate, fetched_at')
           .eq('base_currency', 'USD')
           .eq('quote_currency', 'EUR')
           .eq('captured_date', todayStr)
@@ -783,10 +783,10 @@ export default function FinanceAppPage() {
           console.error('FX global load error (today):', todayError.message);
         }
 
-        // Fallback: latest available global rate
+        // Fallback: latest available by fetched_at
         const { data: latestRow, error: latestError } = await supabase
           .from('fx_rates_global')
-          .select('rate, fetched_at, captured_date')
+          .select('rate, fetched_at')
           .eq('base_currency', 'USD')
           .eq('quote_currency', 'EUR')
           .order('fetched_at', { ascending: false })
