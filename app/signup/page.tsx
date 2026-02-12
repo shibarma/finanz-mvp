@@ -47,7 +47,7 @@ export default function SignupPage() {
     <div className="flex min-h-screen items-center justify-center bg-neutral-50 px-4">
       <div className="w-full max-w-md rounded-2xl border border-neutral-200 bg-white p-8 shadow-sm">
         <h1 className="mb-6 text-center text-2xl font-semibold text-neutral-900">
-          Создать аккаунт
+          Sign up
         </h1>
         <form className="space-y-4" onSubmit={handleSubmit}>
           <div className="space-y-2">
@@ -66,7 +66,7 @@ export default function SignupPage() {
           </div>
           <div className="space-y-2">
             <label className="block text-sm font-medium text-neutral-700" htmlFor="password">
-              Пароль
+              Password
             </label>
             <input
               id="password"
@@ -75,7 +75,7 @@ export default function SignupPage() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
-              placeholder="Минимум 6 символов"
+              placeholder="At least 6 characters"
             />
           </div>
 
@@ -88,14 +88,14 @@ export default function SignupPage() {
             disabled={loading}
             className="flex w-full items-center justify-center rounded-lg bg-neutral-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:bg-neutral-400"
           >
-            {loading ? 'Создаем...' : 'Зарегистрироваться'}
+            {loading ? 'Creating account...' : 'Sign up'}
           </button>
         </form>
 
         <p className="mt-6 text-center text-sm text-neutral-600">
-          Уже есть аккаунт?{' '}
+          Already have an account?{' '}
           <Link href="/login" className="font-semibold text-neutral-900 underline">
-            Войти
+            Log in
           </Link>
         </p>
       </div>
