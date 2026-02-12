@@ -208,12 +208,20 @@ export default function SetupPage() {
   const [cryptoPositionSubmitting, setCryptoPositionSubmitting] = useState(false);
   const [cryptoCoinId, setCryptoCoinId] = useState('');
   const [cryptoQuantity, setCryptoQuantity] = useState('');
+  const [cryptoPositionInputMode, setCryptoPositionInputMode] = useState<
+    'quantity' | 'amount'
+  >('quantity');
+  const [cryptoAmount, setCryptoAmount] = useState('');
   const [cryptoComment, setCryptoComment] = useState('');
   const [editingCryptoPositionId, setEditingCryptoPositionId] = useState<string | null>(
     null,
   );
   const [editCryptoPositionQuantity, setEditCryptoPositionQuantity] = useState('');
   const [editCryptoPositionComment, setEditCryptoPositionComment] = useState('');
+  const [editCryptoPositionInputMode, setEditCryptoPositionInputMode] = useState<
+    'quantity' | 'amount'
+  >('quantity');
+  const [editCryptoAmount, setEditCryptoAmount] = useState('');
   const [cryptoPositionEditSubmitting, setCryptoPositionEditSubmitting] = useState(false);
   const [cryptoPositionEditError, setCryptoPositionEditError] = useState<string | null>(
     null,
@@ -1833,32 +1841,23 @@ export default function SetupPage() {
 
     setCryptoPositionFormError(null);
 
-    if (!cryptoCoinId.trim()) {
-      setCryptoPositionFormError('CoinGecko coin id is required.');
-      return;
-    }
-
-    const cryptoAccount = accounts.find((a) => a.id === selectedCryptoAccountId);
-    if (!cryptoAccount || !cryptoAccount.currency) {
-      setCryptoPositionFormError('Crypto account not found or currency not set.');
-      return;
-    }
-
-    const parsedQty = parseMoneyExpression(cryptoQuantity);
-    if (!parsedQty.ok) {
-      setCryptoPositionFormError(parsedQty.error);
-      return;
-    }
-    const quantityNum = parsedQty.value;
-    if (quantityNum < 0) {
-      setCryptoPositionFormError('Quantity cannot be negative.');
-      return;
-    }
-
     setCryptoPositionSubmitting(true);
     setCryptoPositionFormError(null);
 
     try {
+      if (!cryptoCoinId.trim()) {
+        setCryptoPositionSubmitting(false);
+        setCryptoPositionFormError('CoinGecko coin id is required.');
+        return;
+      }
+
+      const cryptoAccount = accounts.find((a) => a.id === selectedCryptoAccountId);
+      if (!cryptoAccount || !cryptoAccount.currency) {
+        setCryptoPositionSubmitting(false);
+        setCryptoPositionFormError('Crypto account not found or currency not set.');
+        return;
+      }
+
       const normalizedCoinId = cryptoCoinId.trim().toLowerCase();
       const displaySymbol = normalizedCoinId.toUpperCase();
       const vsCurrency = (cryptoAccount.currency || 'EUR').toLowerCase();
@@ -1903,6 +1902,46 @@ export default function SetupPage() {
 
       const cgPrice: number = quoteData.price;
       const fetchedAt: string = (quoteData.fetched_at as string) || new Date().toISOString();
+
+      // Determine quantity based on input mode
+      let quantityNum: number;
+
+      if (cryptoPositionInputMode === 'quantity') {
+        const parsedQty = parseMoneyExpression(cryptoQuantity);
+        if (!parsedQty.ok) {
+          setCryptoPositionSubmitting(false);
+          setCryptoPositionFormError(parsedQty.error);
+          return;
+        }
+        quantityNum = parsedQty.value;
+        if (quantityNum < 0) {
+          setCryptoPositionSubmitting(false);
+          setCryptoPositionFormError('Quantity cannot be negative.');
+          return;
+        }
+      } else {
+        const amountNum = Number(cryptoAmount);
+
+        if (!cryptoAmount.trim() || Number.isNaN(amountNum) || amountNum < 0) {
+          setCryptoPositionSubmitting(false);
+          setCryptoPositionFormError('Enter amount (0 or greater).');
+          return;
+        }
+
+        if (!cgPrice || cgPrice <= 0) {
+          setCryptoPositionSubmitting(false);
+          setCryptoPositionFormError('Cannot calculate quantity: price unavailable.');
+          return;
+        }
+
+        quantityNum = amountNum / cgPrice;
+
+        if (Number.isNaN(quantityNum) || quantityNum < 0) {
+          setCryptoPositionSubmitting(false);
+          setCryptoPositionFormError('Invalid quantity calculated.');
+          return;
+        }
+      }
 
       // Find or create crypto instrument
       const { data: existingInstrument, error: findError } = await supabase
@@ -1997,7 +2036,9 @@ export default function SetupPage() {
       // Clear form only on success
       setCryptoCoinId('');
       setCryptoQuantity('');
+      setCryptoAmount('');
       setCryptoComment('');
+      setCryptoPositionInputMode('quantity');
 
       await loadCryptoPositions();
       setCryptoPositionSubmitting(false);
@@ -2013,6 +2054,8 @@ export default function SetupPage() {
     setEditingCryptoPositionId(position.id);
     setEditCryptoPositionQuantity(position.quantity.toString());
     setEditCryptoPositionComment(position.comment || '');
+    setEditCryptoPositionInputMode('quantity');
+    setEditCryptoAmount('');
     setCryptoPositionEditError(null);
   };
 
@@ -2020,6 +2063,8 @@ export default function SetupPage() {
     setEditingCryptoPositionId(null);
     setEditCryptoPositionQuantity('');
     setEditCryptoPositionComment('');
+    setEditCryptoAmount('');
+    setEditCryptoPositionInputMode('quantity');
     setCryptoPositionEditError(null);
   };
 
@@ -2028,15 +2073,43 @@ export default function SetupPage() {
 
     setCryptoPositionEditError(null);
 
-    const parsed = parseMoneyExpression(editCryptoPositionQuantity);
-    if (!parsed.ok) {
-      setCryptoPositionEditError(parsed.error);
-      return;
-    }
-    const quantityNum = parsed.value;
-    if (quantityNum < 0) {
-      setCryptoPositionEditError('Quantity cannot be negative.');
-      return;
+    // Find current position to get last_price if needed for amount mode
+    const currentPosition = cryptoPositions.find(
+      (p) => p.id === editingCryptoPositionId,
+    );
+
+    let quantityNum: number;
+
+    if (editCryptoPositionInputMode === 'quantity') {
+      const parsed = parseMoneyExpression(editCryptoPositionQuantity);
+      if (!parsed.ok) {
+        setCryptoPositionEditError(parsed.error);
+        return;
+      }
+      quantityNum = parsed.value;
+      if (quantityNum < 0) {
+        setCryptoPositionEditError('Quantity cannot be negative.');
+        return;
+      }
+    } else {
+      if (!currentPosition || !currentPosition.last_price || currentPosition.last_price <= 0) {
+        setCryptoPositionEditError('Cannot calculate quantity: price unavailable.');
+        return;
+      }
+
+      const amountNum = Number(editCryptoAmount);
+
+      if (!editCryptoAmount.trim() || Number.isNaN(amountNum) || amountNum < 0) {
+        setCryptoPositionEditError('Enter amount (0 or greater).');
+        return;
+      }
+
+      quantityNum = amountNum / currentPosition.last_price;
+
+      if (Number.isNaN(quantityNum) || quantityNum < 0) {
+        setCryptoPositionEditError('Invalid quantity calculated.');
+        return;
+      }
     }
 
     setCryptoPositionEditSubmitting(true);
@@ -3799,18 +3872,76 @@ export default function SetupPage() {
 
                             <div className="space-y-1">
                               <label className="block text-xs font-medium text-neutral-700">
-                                Quantity
+                                Input mode
                               </label>
-                              <input
-                                type="text"
-                                value={editCryptoPositionQuantity}
-                                onChange={(e) => setEditCryptoPositionQuantity(e.target.value)}
-                                className="w-full rounded-lg border border-neutral-300 px-2 py-1 text-xs outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
-                              />
-                              <p className="mt-1 text-[10px] text-neutral-500">
-                                You can enter expressions: 0.1+0.2, supports + - * / ( )
-                              </p>
+                              <div className="inline-flex rounded-lg border border-neutral-300 bg-neutral-50 p-0.5 text-[10px]">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditCryptoPositionInputMode('quantity');
+                                    setEditCryptoAmount('');
+                                  }}
+                                  className={`px-2 py-0.5 rounded-md ${
+                                    editCryptoPositionInputMode === 'quantity'
+                                      ? 'bg-white text-neutral-900 shadow-sm'
+                                      : 'text-neutral-600'
+                                  }`}
+                                >
+                                  Quantity
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditCryptoPositionInputMode('amount');
+                                    setEditCryptoPositionQuantity('');
+                                  }}
+                                  className={`px-2 py-0.5 rounded-md ${
+                                    editCryptoPositionInputMode === 'amount'
+                                      ? 'bg-white text-neutral-900 shadow-sm'
+                                      : 'text-neutral-600'
+                                  }`}
+                                >
+                                  Amount
+                                </button>
+                              </div>
                             </div>
+
+                            {editCryptoPositionInputMode === 'quantity' ? (
+                              <div className="space-y-1">
+                                <label className="block text-xs font-medium text-neutral-700">
+                                  Quantity
+                                </label>
+                                <input
+                                  type="text"
+                                  value={editCryptoPositionQuantity}
+                                  onChange={(e) =>
+                                    setEditCryptoPositionQuantity(e.target.value)
+                                  }
+                                  className="w-full rounded-lg border border-neutral-300 px-2 py-1 text-xs outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                                />
+                                <p className="mt-1 text-[10px] text-neutral-500">
+                                  You can enter expressions: 0.1+0.2, supports + - * / ( )
+                                </p>
+                              </div>
+                            ) : (
+                              <div className="space-y-1">
+                                <label className="block text-xs font-medium text-neutral-700">
+                                  Amount in crypto account currency
+                                </label>
+                                <input
+                                  type="number"
+                                  step="any"
+                                  min="0"
+                                  value={editCryptoAmount}
+                                  onChange={(e) => setEditCryptoAmount(e.target.value)}
+                                  className="w-full rounded-lg border border-neutral-300 px-2 py-1 text-xs outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                                />
+                                <p className="text-[10px] text-neutral-500">
+                                  Quantity will be calculated automatically based on the current
+                                  coin price.
+                                </p>
+                              </div>
+                            )}
 
                             <div className="space-y-1">
                               <label className="block text-xs font-medium text-neutral-700">
@@ -3983,22 +4114,84 @@ export default function SetupPage() {
                 <div className="space-y-1">
                   <label
                     className="block text-xs font-medium text-neutral-700"
-                    htmlFor="crypto-quantity"
                   >
-                    Quantity
+                    Input mode
                   </label>
-                  <input
-                    id="crypto-quantity"
-                    type="text"
-                    value={cryptoQuantity}
-                    onChange={(e) => setCryptoQuantity(e.target.value)}
-                    className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
-                    placeholder="e.g. 0.5"
-                  />
-                  <p className="mt-1 text-xs text-neutral-500">
-                    You can enter expressions: 0.1+0.2, supports + - * / ( )
-                  </p>
+                  <div className="inline-flex rounded-lg border border-neutral-300 bg-neutral-50 p-0.5 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCryptoPositionInputMode('quantity');
+                        setCryptoAmount('');
+                      }}
+                      className={`px-3 py-1 rounded-md ${
+                        cryptoPositionInputMode === 'quantity'
+                          ? 'bg-white text-neutral-900 shadow-sm'
+                          : 'text-neutral-600'
+                      }`}
+                    >
+                      Quantity
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCryptoPositionInputMode('amount');
+                        setCryptoQuantity('');
+                      }}
+                      className={`px-3 py-1 rounded-md ${
+                        cryptoPositionInputMode === 'amount'
+                          ? 'bg-white text-neutral-900 shadow-sm'
+                          : 'text-neutral-600'
+                      }`}
+                    >
+                      Amount
+                    </button>
+                  </div>
                 </div>
+
+                {cryptoPositionInputMode === 'quantity' ? (
+                  <div className="space-y-1">
+                    <label
+                      className="block text-xs font-medium text-neutral-700"
+                      htmlFor="crypto-quantity"
+                    >
+                      Quantity
+                    </label>
+                    <input
+                      id="crypto-quantity"
+                      type="text"
+                      value={cryptoQuantity}
+                      onChange={(e) => setCryptoQuantity(e.target.value)}
+                      className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                      placeholder="e.g. 0.5"
+                    />
+                    <p className="mt-1 text-xs text-neutral-500">
+                      You can enter expressions: 0.1+0.2, supports + - * / ( )
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-1">
+                    <label
+                      className="block text-xs font-medium text-neutral-700"
+                      htmlFor="crypto-amount"
+                    >
+                      Amount in crypto account currency
+                    </label>
+                    <input
+                      id="crypto-amount"
+                      type="number"
+                      step="any"
+                      min="0"
+                      value={cryptoAmount}
+                      onChange={(e) => setCryptoAmount(e.target.value)}
+                      className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                      placeholder="e.g. 1500"
+                    />
+                    <p className="text-[11px] text-neutral-500">
+                      Quantity will be calculated automatically based on the current coin price.
+                    </p>
+                  </div>
+                )}
 
                 <div className="space-y-1">
                   <label
