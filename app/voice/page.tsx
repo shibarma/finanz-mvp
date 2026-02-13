@@ -136,7 +136,7 @@ export default function VoicePage() {
         recognitionRef.current = null;
         setTranscript((prev) => lastFinal || prev);
         setStatus('done');
-      }, 10000);
+      }, 30000);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to start recognition');
       setStatus('error');
