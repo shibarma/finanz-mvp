@@ -84,7 +84,10 @@ export default function VoicePage() {
     let lastFinal = '';
     userClearedOrSentRef.current = false;
 
-    recognition.onresult = (event: SpeechRecognitionEvent) => {
+    recognition.onresult = (event: {
+      resultIndex: number;
+      results: Array<{ isFinal: boolean; 0: { transcript: string } }>;
+    }) => {
       let interim = '';
       let final = '';
       for (let i = event.resultIndex; i < event.results.length; i++) {
@@ -110,7 +113,7 @@ export default function VoicePage() {
       setStatus('done');
     };
 
-    recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
+    recognition.onerror = (event: { error?: string }) => {
       if (recognitionRef.current === recognition) {
         setError(event.error || 'Recognition error');
         setStatus('error');
