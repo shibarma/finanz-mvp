@@ -82,6 +82,7 @@ export default function VoicePage() {
     recognition.lang = speechLangMap[userLanguage];
 
     let lastFinal = '';
+    let lastAddedFinal = '';
     userClearedOrSentRef.current = false;
 
     recognition.onresult = (event: {
@@ -99,7 +100,14 @@ export default function VoicePage() {
           interim += text;
         }
       }
-      lastFinal = final ? (lastFinal ? lastFinal + ' ' + final : final) : lastFinal;
+      if (final) {
+        const trimmed = final.trim();
+        const isDuplicate = trimmed === lastAddedFinal || (trimmed && lastFinal.endsWith(trimmed));
+        if (!isDuplicate) {
+          lastFinal = lastFinal ? lastFinal + ' ' + trimmed : trimmed;
+          lastAddedFinal = trimmed;
+        }
+      }
       setTranscript((prev) => {
         const base = lastFinal;
         return interim ? base + (base ? ' ' : '') + interim : base;
