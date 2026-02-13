@@ -78,11 +78,10 @@ export default function VoicePage() {
 
     const recognition = new SpeechRecognitionAPI();
     recognition.interimResults = true;
-    recognition.continuous = true;
+    recognition.continuous = false;
     recognition.lang = speechLangMap[userLanguage];
 
     let lastFinal = '';
-    let lastAddedFinal = '';
     userClearedOrSentRef.current = false;
 
     recognition.onresult = (event: {
@@ -90,28 +89,20 @@ export default function VoicePage() {
       results: Array<{ isFinal: boolean; 0: { transcript: string } }>;
     }) => {
       let interim = '';
+      let final = '';
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const result = event.results[i];
         const text = result[0].transcript;
         if (result.isFinal) {
-          const trimmed = text.trim();
-          if (trimmed) {
-            const isDuplicate = trimmed === lastAddedFinal || lastFinal.endsWith(trimmed);
-            if (!isDuplicate) {
-              lastFinal = lastFinal ? lastFinal + ' ' + trimmed : trimmed;
-              lastAddedFinal = trimmed;
-            }
-          }
+          final += text;
         } else {
           interim += text;
         }
       }
-      setTranscript(() => {
+      lastFinal = final ? (lastFinal ? lastFinal + ' ' + final : final) : lastFinal;
+      setTranscript((prev) => {
         const base = lastFinal;
-        if (!interim) return base;
-        const it = interim.trim();
-        if (!it || it === lastAddedFinal || lastFinal.endsWith(it)) return base;
-        return base ? base + ' ' + interim : interim;
+        return interim ? base + (base ? ' ' : '') + interim : base;
       });
     };
 
