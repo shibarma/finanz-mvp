@@ -90,27 +90,28 @@ export default function VoicePage() {
       results: Array<{ isFinal: boolean; 0: { transcript: string } }>;
     }) => {
       let interim = '';
-      let final = '';
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const result = event.results[i];
         const text = result[0].transcript;
         if (result.isFinal) {
-          final += text;
+          const trimmed = text.trim();
+          if (trimmed) {
+            const isDuplicate = trimmed === lastAddedFinal || lastFinal.endsWith(trimmed);
+            if (!isDuplicate) {
+              lastFinal = lastFinal ? lastFinal + ' ' + trimmed : trimmed;
+              lastAddedFinal = trimmed;
+            }
+          }
         } else {
           interim += text;
         }
       }
-      if (final) {
-        const trimmed = final.trim();
-        const isDuplicate = trimmed === lastAddedFinal || (trimmed && lastFinal.endsWith(trimmed));
-        if (!isDuplicate) {
-          lastFinal = lastFinal ? lastFinal + ' ' + trimmed : trimmed;
-          lastAddedFinal = trimmed;
-        }
-      }
-      setTranscript((prev) => {
+      setTranscript(() => {
         const base = lastFinal;
-        return interim ? base + (base ? ' ' : '') + interim : base;
+        if (!interim) return base;
+        const it = interim.trim();
+        if (!it || it === lastAddedFinal || lastFinal.endsWith(it)) return base;
+        return base ? base + ' ' + interim : interim;
       });
     };
 
