@@ -78,11 +78,23 @@ export default function VoicePage() {
 
     const recognition = new SpeechRecognitionAPI();
     recognition.interimResults = true;
-    recognition.continuous = false;
+    recognition.continuous = true;
     recognition.lang = speechLangMap[userLanguage];
 
     let lastFinal = '';
     userClearedOrSentRef.current = false;
+
+    const tryRestart = () => {
+      if (recognitionRef.current !== recognition) return;
+      if (userClearedOrSentRef.current) return;
+      if (timerRef.current === null) return;
+      try {
+        recognition.start();
+      } catch {
+        setTranscript(lastFinal || '');
+        setStatus('done');
+      }
+    };
 
     recognition.onresult = (event: {
       resultIndex: number;
@@ -109,15 +121,23 @@ export default function VoicePage() {
     recognition.onend = () => {
       if (recognitionRef.current !== recognition) return;
       if (userClearedOrSentRef.current) return;
+      if (timerRef.current !== null) {
+        tryRestart();
+        return;
+      }
       setTranscript(lastFinal || '');
       setStatus('done');
     };
 
     recognition.onerror = (event: { error?: string }) => {
-      if (recognitionRef.current === recognition) {
-        setError(event.error || 'Recognition error');
-        setStatus('error');
+      if (recognitionRef.current !== recognition) return;
+      const err = event.error || '';
+      if ((err === 'no-speech' || err === 'aborted') && timerRef.current !== null && !userClearedOrSentRef.current) {
+        tryRestart();
+        return;
       }
+      setError(err || 'Recognition error');
+      setStatus('error');
     };
 
     try {
