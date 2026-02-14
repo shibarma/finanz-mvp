@@ -48,6 +48,9 @@ export default function VoicePage() {
   const deadlineRef = useRef<number | null>(null);
   const finalByIndexRef = useRef<Record<number, string>>({});
   const maxFinalIndexRef = useRef<number>(-1);
+  const committedTranscriptRef = useRef('');
+  const lastInterimRef = useRef('');
+  const committedThisSessionRef = useRef(false);
 
   const RESTART_DEBOUNCE_MS = 300;
   const RECORDING_LIMIT_MS = 30_000;
@@ -68,6 +71,17 @@ export default function VoicePage() {
     }
     return parts.join(' ');
   }
+
+  const commitCurrentText = useCallback(() => {
+    const finalText = getFinalText();
+    const interim = lastInterimRef.current.trim();
+    const combined = [finalText, interim].filter(Boolean).join(' ').trim();
+    if (combined) {
+      committedTranscriptRef.current = combined;
+      setTranscript(committedTranscriptRef.current);
+      lastInterimRef.current = '';
+    }
+  }, []);
 
   const stopRecording = useCallback(() => {
     if (timerRef.current) {
@@ -92,6 +106,8 @@ export default function VoicePage() {
     const rec = recognitionRef.current;
     if (!rec) return;
     if (!isRecordingRef.current) return;
+    lastInterimRef.current = '';
+    committedThisSessionRef.current = false;
     startingRef.current = true;
     try {
       rec.start();
@@ -143,6 +159,7 @@ export default function VoicePage() {
           interimText = text;
         }
       }
+      lastInterimRef.current = interimText;
       const finalText = getFinalText();
       setTranscript(interimText ? finalText + (finalText ? ' ' : '') + interimText : finalText);
     };
@@ -150,8 +167,7 @@ export default function VoicePage() {
     recognition.onend = () => {
       console.log('[Voice] onend');
       if (userClearedOrSentRef.current) return;
-      const finalText = getFinalText();
-      setTranscript(finalText);
+      commitCurrentText();
       if (!isRecordingRef.current) {
         setStatus('done');
         return;
@@ -174,9 +190,26 @@ export default function VoicePage() {
       setStatus('error');
     };
 
+    if ('onspeechend' in recognition) {
+      (recognition as any).onspeechend = () => {
+        if (!committedThisSessionRef.current) {
+          commitCurrentText();
+          committedThisSessionRef.current = true;
+        }
+      };
+    }
+    if ('onaudioend' in recognition) {
+      (recognition as any).onaudioend = () => {
+        if (!committedThisSessionRef.current) {
+          commitCurrentText();
+          committedThisSessionRef.current = true;
+        }
+      };
+    }
+
     recognitionRef.current = recognition;
     return recognitionRef.current;
-  }, [userLanguage, safeStart]);
+  }, [userLanguage, safeStart, commitCurrentText]);
 
   const startRecording = useCallback(() => {
     if (!SpeechRecognitionAPI || !isSupported) {
@@ -187,8 +220,11 @@ export default function VoicePage() {
     setError(null);
     stopRecording();
 
+    committedTranscriptRef.current = '';
     finalByIndexRef.current = {};
     maxFinalIndexRef.current = -1;
+    lastInterimRef.current = '';
+    committedThisSessionRef.current = false;
     setTranscript('');
     userClearedOrSentRef.current = false;
     deadlineRef.current = Date.now() + RECORDING_LIMIT_MS;
@@ -216,8 +252,7 @@ export default function VoicePage() {
           restartTimerRef.current = null;
         }
         stopRecording();
-        setTranscript(getFinalText());
-        setStatus('done');
+        // onend will run and call commitCurrentText() + setStatus('done')
       }, RECORDING_LIMIT_MS);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to start recognition');
@@ -234,8 +269,11 @@ export default function VoicePage() {
       restartTimerRef.current = null;
     }
     stopRecording();
+    committedTranscriptRef.current = '';
     finalByIndexRef.current = {};
     maxFinalIndexRef.current = -1;
+    lastInterimRef.current = '';
+    committedThisSessionRef.current = false;
     setTranscript('');
     setError(null);
     setStatus('idle');
