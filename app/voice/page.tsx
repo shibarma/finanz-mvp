@@ -54,7 +54,49 @@ export default function VoicePage() {
   const restartRecognitionRef = useRef<() => void>(() => {});
   const triedAutostartRef = useRef(false);
 
+  const micStreamRef = useRef<MediaStream | null>(null);
+  const micPermissionRef = useRef<'unknown' | 'granted' | 'denied'>('unknown');
+  const micEnsuringRef = useRef(false);
+
   statusRef.current = status;
+
+  const ensureMicPermission = useCallback(async (): Promise<boolean> => {
+    if (micPermissionRef.current === 'granted' && micStreamRef.current) return true;
+    if (micEnsuringRef.current) return false;
+    micEnsuringRef.current = true;
+    try {
+      if (typeof navigator?.permissions?.query === 'function') {
+        try {
+          const status = await navigator.permissions.query({ name: 'microphone' as PermissionName });
+          if (status.state === 'denied') {
+            micPermissionRef.current = 'denied';
+            setError('Microphone permission denied. Please allow microphone access in browser settings.');
+            setStatus('error');
+            return false;
+          }
+          if (status.state === 'granted' && !micStreamRef.current) {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            micStreamRef.current = stream;
+            micPermissionRef.current = 'granted';
+            return true;
+          }
+        } catch {
+          // permissions.query not supported or failed, fall through to getUserMedia
+        }
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      micStreamRef.current = stream;
+      micPermissionRef.current = 'granted';
+      return true;
+    } catch {
+      micPermissionRef.current = 'denied';
+      setError('Microphone permission denied. Please allow microphone access in browser settings.');
+      setStatus('error');
+      return false;
+    } finally {
+      micEnsuringRef.current = false;
+    }
+  }, []);
 
   const SpeechRecognitionAPI =
     typeof window !== 'undefined'
@@ -164,6 +206,7 @@ export default function VoicePage() {
     if (shouldStopRef.current) return;
     if (statusRef.current !== 'recording') return;
     if (isStartingRef.current) return;
+    if (micPermissionRef.current !== 'granted') return;
     try {
       recognitionRef.current?.abort?.();
     } catch {
@@ -184,41 +227,50 @@ export default function VoicePage() {
 
   restartRecognitionRef.current = restartRecognition;
 
-  const startRecording = useCallback(() => {
-    if (!SpeechRecognitionAPI || !isSupported) {
-      setError('Speech recognition is not supported in this browser.');
-      setStatus('error');
-      return;
-    }
-    if (status === 'recording' || isStartingRef.current) return;
-    setError(null);
-    shouldStopRef.current = false;
-    const wasIdle = status === 'idle';
-    setStatus('recording');
-    if (wasIdle) {
-      finalTextRef.current = '';
-      setTranscript('');
-    }
-    createRecognition();
-    try {
-      recognitionRef.current?.start();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to start recognition');
-      setStatus('error');
-      recognitionRef.current = null;
-      return;
-    }
-    isStartingRef.current = true;
-    setTimeout(() => {
-      isStartingRef.current = false;
-    }, 300);
-    if (wasIdle) {
-      timerRef.current = setTimeout(() => {
-        timerRef.current = null;
-        finishRecording();
-      }, 30000);
-    }
-  }, [userLanguage, isSupported, status, createRecognition, finishRecording]);
+  const startRecording = useCallback(
+    async (fromUserGesture = true) => {
+      if (!SpeechRecognitionAPI || !isSupported) {
+        setError('Speech recognition is not supported in this browser.');
+        setStatus('error');
+        return;
+      }
+      if (status === 'recording' || isStartingRef.current) return;
+      if (fromUserGesture) {
+        const ok = await ensureMicPermission();
+        if (!ok) return;
+      } else {
+        if (micPermissionRef.current !== 'granted') return;
+      }
+      setError(null);
+      shouldStopRef.current = false;
+      const wasIdle = status === 'idle';
+      setStatus('recording');
+      if (wasIdle) {
+        finalTextRef.current = '';
+        setTranscript('');
+      }
+      createRecognition();
+      try {
+        recognitionRef.current?.start();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to start recognition');
+        setStatus('error');
+        recognitionRef.current = null;
+        return;
+      }
+      isStartingRef.current = true;
+      setTimeout(() => {
+        isStartingRef.current = false;
+      }, 300);
+      if (wasIdle) {
+        timerRef.current = setTimeout(() => {
+          timerRef.current = null;
+          finishRecording();
+        }, 30000);
+      }
+    },
+    [userLanguage, isSupported, status, createRecognition, finishRecording, ensureMicPermission]
+  );
 
   const handleClear = useCallback(() => {
     clearRecording();
@@ -291,16 +343,12 @@ export default function VoicePage() {
     init();
   }, [router]);
 
-  // Best-effort autostart when session is ready (browser may block without user gesture)
+  // Best-effort autostart when session is ready (no permission request without user gesture)
   useEffect(() => {
     if (!sessionChecked || !isSupported || triedAutostartRef.current) return;
     triedAutostartRef.current = true;
-    try {
-      startRecording();
-      setHasInteracted(true);
-    } catch {
-      // overlay remains for tap-to-start
-    }
+    setHasInteracted(true);
+    startRecording(false);
   }, [sessionChecked, isSupported, startRecording]);
 
   useEffect(() => {
@@ -314,6 +362,10 @@ export default function VoicePage() {
       recognitionRef.current = null;
       if (timerRef.current != null) clearTimeout(timerRef.current);
       if (restartTimeoutRef.current != null) clearTimeout(restartTimeoutRef.current);
+      if (micStreamRef.current) {
+        micStreamRef.current.getTracks().forEach((t) => t.stop());
+        micStreamRef.current = null;
+      }
     };
   }, []);
 
