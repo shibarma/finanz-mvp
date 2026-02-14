@@ -140,7 +140,7 @@ export default function VoicePage() {
       }
       setTranscript(normalize(finalTextRef.current + (interim ? ' ' + interim : '')));
     };
-
+//just a comment to update and deploy
     recognition.onend = () => {
       if (shouldStopRef.current) return;
       if (statusRef.current !== 'recording') return;
