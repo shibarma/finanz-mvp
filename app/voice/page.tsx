@@ -38,12 +38,19 @@ export default function VoicePage() {
   const [status, setStatus] = useState<Status>('idle');
   const [transcript, setTranscript] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [hasInteracted, setHasInteracted] = useState(false);
 
   const recognitionRef = useRef<any>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const userClearedOrSentRef = useRef(false);
-  const triedAutostartRef = useRef(false);
+  const isRecordingRef = useRef(false);
+  const startingRef = useRef(false);
+  const restartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const deadlineRef = useRef<number | null>(null);
+  const finalByIndexRef = useRef<Record<number, string>>({});
+  const maxFinalIndexRef = useRef<number>(-1);
+
+  const RESTART_DEBOUNCE_MS = 300;
+  const RECORDING_LIMIT_MS = 30_000;
 
   const SpeechRecognitionAPI =
     typeof window !== 'undefined'
@@ -52,10 +59,24 @@ export default function VoicePage() {
 
   const isSupported = !!SpeechRecognitionAPI;
 
-  const stopAndClearTimer = useCallback(() => {
+  function getFinalText(): string {
+    const map = finalByIndexRef.current;
+    const max = maxFinalIndexRef.current;
+    const parts: string[] = [];
+    for (let i = 0; i <= max; i++) {
+      if (map[i] != null) parts.push(map[i]);
+    }
+    return parts.join(' ');
+  }
+
+  const stopRecording = useCallback(() => {
     if (timerRef.current) {
       clearTimeout(timerRef.current);
       timerRef.current = null;
+    }
+    if (restartTimerRef.current) {
+      clearTimeout(restartTimerRef.current);
+      restartTimerRef.current = null;
     }
     if (recognitionRef.current) {
       try {
@@ -63,9 +84,99 @@ export default function VoicePage() {
       } catch {
         // ignore
       }
-      recognitionRef.current = null;
     }
   }, []);
+
+  const safeStart = useCallback(() => {
+    if (startingRef.current) return;
+    const rec = recognitionRef.current;
+    if (!rec) return;
+    if (!isRecordingRef.current) return;
+    startingRef.current = true;
+    try {
+      rec.start();
+      console.log('[Voice] start (restart)');
+    } catch (err) {
+      const name = err instanceof Error ? (err as Error & { name?: string }).name : '';
+      if (name === 'InvalidStateError') {
+        // will retry via debounced onend
+      } else {
+        setError(err instanceof Error ? err.message : 'Failed to start recognition');
+        setStatus('error');
+      }
+    } finally {
+      startingRef.current = false;
+    }
+  }, []);
+
+  const getOrCreateRecognition = useCallback(() => {
+    if (recognitionRef.current) {
+      recognitionRef.current.lang = speechLangMap[userLanguage];
+      return recognitionRef.current;
+    }
+    const SpeechAPI =
+      typeof window !== 'undefined'
+        ? (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+        : null;
+    if (!SpeechAPI) return null;
+    const recognition = new SpeechAPI();
+    recognition.interimResults = true;
+    recognition.continuous = false;
+    recognition.lang = speechLangMap[userLanguage];
+
+    recognition.onresult = (event: {
+      resultIndex: number;
+      results: Array<{ isFinal: boolean; length?: number; 0: { transcript: string } }>;
+    }) => {
+      let interimText = '';
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const result = event.results[i];
+        const text = result[0].transcript.trim();
+        if (!text) continue;
+        if (result.isFinal) {
+          if (i > maxFinalIndexRef.current) {
+            const nextIdx = maxFinalIndexRef.current + 1;
+            finalByIndexRef.current[nextIdx] = text;
+            maxFinalIndexRef.current = nextIdx;
+          }
+        } else {
+          interimText = text;
+        }
+      }
+      const finalText = getFinalText();
+      setTranscript(interimText ? finalText + (finalText ? ' ' : '') + interimText : finalText);
+    };
+
+    recognition.onend = () => {
+      console.log('[Voice] onend');
+      if (userClearedOrSentRef.current) return;
+      const finalText = getFinalText();
+      setTranscript(finalText);
+      if (!isRecordingRef.current) {
+        setStatus('done');
+        return;
+      }
+      const deadline = deadlineRef.current;
+      if (deadline != null && Date.now() < deadline) {
+        if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
+        restartTimerRef.current = setTimeout(() => {
+          restartTimerRef.current = null;
+          safeStart();
+        }, RESTART_DEBOUNCE_MS);
+      } else {
+        setStatus('done');
+      }
+    };
+
+    recognition.onerror = (event: { error?: string }) => {
+      console.log('[Voice] onerror', event.error ?? '');
+      setError(event.error || 'Recognition error');
+      setStatus('error');
+    };
+
+    recognitionRef.current = recognition;
+    return recognitionRef.current;
+  }, [userLanguage, safeStart]);
 
   const startRecording = useCallback(() => {
     if (!SpeechRecognitionAPI || !isSupported) {
@@ -74,98 +185,88 @@ export default function VoicePage() {
       return;
     }
     setError(null);
-    stopAndClearTimer();
+    stopRecording();
 
-    const recognition = new SpeechRecognitionAPI();
-    recognition.interimResults = true;
-    recognition.continuous = false;
-    recognition.lang = speechLangMap[userLanguage];
-
-    let lastFinal = '';
+    finalByIndexRef.current = {};
+    maxFinalIndexRef.current = -1;
+    setTranscript('');
     userClearedOrSentRef.current = false;
+    deadlineRef.current = Date.now() + RECORDING_LIMIT_MS;
+    isRecordingRef.current = true;
 
-    recognition.onresult = (event: {
-      resultIndex: number;
-      results: Array<{ isFinal: boolean; 0: { transcript: string } }>;
-    }) => {
-      let interim = '';
-      let final = '';
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const result = event.results[i];
-        const text = result[0].transcript;
-        if (result.isFinal) {
-          final += text;
-        } else {
-          interim += text;
-        }
-      }
-      lastFinal = final ? (lastFinal ? lastFinal + ' ' + final : final) : lastFinal;
-      setTranscript((prev) => {
-        const base = lastFinal;
-        return interim ? base + (base ? ' ' : '') + interim : base;
-      });
-    };
-
-    recognition.onend = () => {
-      if (recognitionRef.current !== recognition) return;
-      if (userClearedOrSentRef.current) return;
-      setTranscript(lastFinal || '');
-      setStatus('done');
-    };
-
-    recognition.onerror = (event: { error?: string }) => {
-      if (recognitionRef.current === recognition) {
-        setError(event.error || 'Recognition error');
-        setStatus('error');
-      }
-    };
+    const recognition = getOrCreateRecognition();
+    if (!recognition) {
+      setError('Speech recognition is not supported in this browser.');
+      setStatus('error');
+      isRecordingRef.current = false;
+      return;
+    }
+    recognition.lang = speechLangMap[userLanguage];
 
     try {
       recognition.start();
-      recognitionRef.current = recognition;
+      console.log('[Voice] start (primary)');
       setStatus('recording');
-      setTranscript('');
 
       timerRef.current = setTimeout(() => {
         timerRef.current = null;
-        try {
-          recognition.stop();
-        } catch {
-          // ignore
+        isRecordingRef.current = false;
+        if (restartTimerRef.current) {
+          clearTimeout(restartTimerRef.current);
+          restartTimerRef.current = null;
         }
-        recognitionRef.current = null;
-        setTranscript((prev) => lastFinal || prev);
+        stopRecording();
+        setTranscript(getFinalText());
         setStatus('done');
-      }, 30000);
+      }, RECORDING_LIMIT_MS);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to start recognition');
       setStatus('error');
-      recognitionRef.current = null;
+      isRecordingRef.current = false;
     }
-  }, [userLanguage, isSupported, stopAndClearTimer]);
+  }, [userLanguage, isSupported, stopRecording, getOrCreateRecognition]);
 
   const handleClear = useCallback(() => {
     userClearedOrSentRef.current = true;
-    stopAndClearTimer();
+    isRecordingRef.current = false;
+    if (restartTimerRef.current) {
+      clearTimeout(restartTimerRef.current);
+      restartTimerRef.current = null;
+    }
+    stopRecording();
+    finalByIndexRef.current = {};
+    maxFinalIndexRef.current = -1;
     setTranscript('');
     setError(null);
     setStatus('idle');
-  }, [stopAndClearTimer]);
+  }, [stopRecording]);
 
   const handleSend = useCallback(() => {
     userClearedOrSentRef.current = true;
-    stopAndClearTimer();
+    isRecordingRef.current = false;
+    if (restartTimerRef.current) {
+      clearTimeout(restartTimerRef.current);
+      restartTimerRef.current = null;
+    }
+    stopRecording();
     setStatus('done');
-    // text stays on screen
-  }, [stopAndClearTimer]);
+  }, [stopRecording]);
 
   const handleLanguageChange = useCallback(
     async (lang: UserLanguage) => {
       if (!userId) return;
       const wasRecording = status === 'recording';
-      if (wasRecording) {
-        stopAndClearTimer();
-        setStatus('idle');
+      const rec = recognitionRef.current;
+      if (rec) {
+        rec.lang = speechLangMap[lang];
+        if (wasRecording) {
+          try {
+            rec.stop();
+          } catch {
+            // ignore
+          }
+          // onend will fire and schedule safeStart (controlled restart with new lang)
+        }
       }
 
       setUserLanguage(lang);
@@ -179,12 +280,8 @@ export default function VoicePage() {
         return;
       }
       setError(null);
-
-      if (wasRecording) {
-        setTimeout(() => startRecording(), 100);
-      }
     },
-    [userId, status, stopAndClearTimer, startRecording]
+    [userId, status]
   );
 
   useEffect(() => {
@@ -225,23 +322,11 @@ export default function VoicePage() {
     init();
   }, [router]);
 
-  // Best-effort autostart when session is ready (browser may block without user gesture)
-  useEffect(() => {
-    if (!sessionChecked || !isSupported || triedAutostartRef.current) return;
-    triedAutostartRef.current = true;
-    try {
-      startRecording();
-      setHasInteracted(true);
-    } catch {
-      // overlay remains for tap-to-start
-    }
-  }, [sessionChecked, isSupported, startRecording]);
-
   useEffect(() => {
     return () => {
-      stopAndClearTimer();
+      stopRecording();
     };
-  }, [stopAndClearTimer]);
+  }, [stopRecording]);
 
   if (!sessionChecked) {
     return (
@@ -262,32 +347,8 @@ export default function VoicePage() {
     );
   }
 
-  const overlay = !hasInteracted && (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-      onClick={() => {
-        setHasInteracted(true);
-        startRecording();
-      }}
-      role="button"
-      tabIndex={0}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          setHasInteracted(true);
-          startRecording();
-        }
-      }}
-      aria-label="Tap to start recording"
-    >
-      <p className="text-white text-lg font-medium">Tap to start recording</p>
-    </div>
-  );
-
   return (
     <div className="min-h-screen bg-neutral-50 p-4 pb-8">
-      {overlay}
-
       <h1 className="text-xl font-semibold text-neutral-800 mb-4">Voice input</h1>
 
       <div className="mb-4">
@@ -327,7 +388,6 @@ export default function VoicePage() {
         <button
           type="button"
           onClick={() => {
-            setHasInteracted(true);
             if (status !== 'recording') startRecording();
           }}
           disabled={status === 'recording'}
