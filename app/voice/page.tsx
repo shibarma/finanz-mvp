@@ -43,6 +43,9 @@ export default function VoicePage() {
   const [transcript, setTranscript] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [hasInteracted, setHasInteracted] = useState(false);
+  const [isSending, setIsSending] = useState(false);
+  const [llmResult, setLlmResult] = useState<Record<string, unknown> | null>(null);
+  const [llmError, setLlmError] = useState<string | null>(null);
 
   const recognitionRef = useRef<any>(null);
   const finalTextRef = useRef<string>('');
@@ -53,6 +56,7 @@ export default function VoicePage() {
   const statusRef = useRef<Status>(status);
   const restartRecognitionRef = useRef<() => void>(() => {});
   const triedAutostartRef = useRef(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   statusRef.current = status;
 
@@ -107,6 +111,8 @@ export default function VoicePage() {
     setTranscript('');
     setStatus('idle');
     setError(null);
+    setLlmResult(null);
+    setLlmError(null);
   }, []);
 
   const createRecognition = useCallback(() => {
@@ -127,6 +133,7 @@ export default function VoicePage() {
       resultIndex: number;
       results: Array<{ isFinal: boolean; 0?: { transcript?: string } }>;
     }) => {
+      if (textareaRef.current && document.activeElement === textareaRef.current) return;
       let interim = '';
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const res = event.results[i];
@@ -140,7 +147,7 @@ export default function VoicePage() {
       }
       setTranscript(normalize(finalTextRef.current + (interim ? ' ' + interim : '')));
     };
-//just a comment to update and deploy
+
     recognition.onend = () => {
       if (shouldStopRef.current) return;
       if (statusRef.current !== 'recording') return;
@@ -198,6 +205,8 @@ export default function VoicePage() {
     if (wasIdle) {
       finalTextRef.current = '';
       setTranscript('');
+      setLlmResult(null);
+      setLlmError(null);
     }
     createRecognition();
     try {
@@ -224,9 +233,38 @@ export default function VoicePage() {
     clearRecording();
   }, [clearRecording]);
 
-  const handleSend = useCallback(() => {
-    finishRecording();
-  }, [finishRecording]);
+  const handleSend = useCallback(async () => {
+    if (status === 'recording') finishRecording();
+    const text = transcript.trim();
+    if (!text) {
+      setLlmError('Enter or dictate text first');
+      setLlmResult(null);
+      return;
+    }
+    setIsSending(true);
+    setLlmError(null);
+    setLlmResult(null);
+    try {
+      const res = await fetch('/api/voice/parse-expense', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+      const data = (await res.json()) as { ok: boolean; result?: Record<string, unknown>; error?: string };
+      if (data.ok && data.result) {
+        setLlmResult(data.result);
+        setLlmError(null);
+      } else {
+        setLlmError(data.error ?? 'Unknown error');
+        setLlmResult(null);
+      }
+    } catch (e) {
+      setLlmError(e instanceof Error ? e.message : 'Failed to contact server');
+      setLlmResult(null);
+    } finally {
+      setIsSending(false);
+    }
+  }, [status, transcript, finishRecording]);
 
   const handleLanguageChange = useCallback(
     async (lang: UserLanguage) => {
@@ -392,12 +430,17 @@ export default function VoicePage() {
 
       <div className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm mb-4">
         <h2 className="text-sm font-medium text-neutral-600 mb-2">Transcript</h2>
-        <div className="min-h-[120px] text-neutral-800 whitespace-pre-wrap break-words">
-          {transcript || (status === 'recording' ? '...' : '')}
-        </div>
+        <textarea
+          ref={textareaRef}
+          value={transcript}
+          onChange={(e) => setTranscript(e.target.value)}
+          placeholder={status === 'recording' ? 'Speaking...' : ''}
+          rows={5}
+          className="w-full min-h-[120px] rounded-xl border border-neutral-200 bg-white px-3 py-2 text-neutral-800 placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-neutral-300 resize-y"
+        />
       </div>
 
-      <div className="flex flex-wrap gap-3">
+      <div className="flex flex-wrap gap-3 mb-4">
         <button
           type="button"
           onClick={() => {
@@ -419,11 +462,28 @@ export default function VoicePage() {
         <button
           type="button"
           onClick={handleSend}
-          className="rounded-2xl border border-neutral-200 bg-white px-5 py-2.5 text-sm font-medium text-neutral-800 shadow-sm hover:bg-neutral-50"
+          disabled={isSending}
+          className="rounded-2xl border border-neutral-200 bg-white px-5 py-2.5 text-sm font-medium text-neutral-800 shadow-sm hover:bg-neutral-50 disabled:opacity-50 disabled:pointer-events-none"
         >
-          Send
+          {isSending ? 'Sending…' : 'Send'}
         </button>
       </div>
+
+      {(llmResult != null || llmError != null) && (
+        <div className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm">
+          <h2 className="text-sm font-medium text-neutral-600 mb-2">LLM result</h2>
+          {llmError != null && (
+            <div className="mb-3 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+              {llmError}
+            </div>
+          )}
+          {llmResult != null && (
+            <pre className="overflow-x-auto rounded-xl border border-neutral-200 bg-neutral-50 p-3 text-sm text-neutral-800 whitespace-pre-wrap break-words">
+              {JSON.stringify(llmResult, null, 2)}
+            </pre>
+          )}
+        </div>
+      )}
     </div>
   );
 }
