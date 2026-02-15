@@ -211,6 +211,7 @@ export async function POST(request: NextRequest) {
       (getParsedString(parsed, 'comment') ?? '').trim() || (text ?? '').trim() || '';
     const comment = commentPart ? `${commentPart} — audio input` : 'audio input';
 
+    const created_at = new Date().toISOString();
     const { data: inserted, error: insertError } = await admin
       .from('transactions')
       .insert({
@@ -222,27 +223,40 @@ export async function POST(request: NextRequest) {
         category_id: matchedCategoryId,
         comment,
         transfer_id: null,
-        created_at: new Date().toISOString(),
+        created_at,
       })
-      .select('id')
+      .select('id, amount, created_at')
       .single();
 
     if (insertError) {
       return NextResponse.json({ ok: false, error: insertError.message }, { status: 500 });
     }
 
-    const transaction_id = (inserted as { id: string } | null)?.id ?? '';
+    const row = inserted as { id: string; amount: number; created_at: string } | null;
+    const transaction_id = row?.id ?? '';
+
+    const parsedEcho = {
+      amount,
+      account_name: getParsedString(parsed, 'account_name'),
+      category_name: getParsedString(parsed, 'category_name'),
+      comment: getParsedString(parsed, 'comment'),
+    };
 
     return NextResponse.json({
       ok: true,
-      transaction_id,
-      matched: {
+      parsed: parsedEcho,
+      resolved: {
         account_id: matchedAccountId,
+        account_name: matchedAccountName,
         category_id: matchedCategoryId,
+        category_name: matchedCategoryName,
         account_score,
         category_score,
-        account_name: matchedAccountName,
-        category_name: matchedCategoryName,
+      },
+      transaction: {
+        id: transaction_id,
+        amount: row?.amount ?? amount,
+        created_at: row?.created_at ?? created_at,
       },
     });
   } catch (err) {

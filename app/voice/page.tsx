@@ -19,6 +19,9 @@ const LANGUAGE_OPTIONS: { value: UserLanguage; label: string }[] = [
   { value: 'de', label: 'German' },
 ];
 
+const AUTO_REDIRECT = true;
+const REDIRECT_DELAY_MS = 1000;
+
 async function requireSessionOrRedirect(router: ReturnType<typeof useRouter>) {
   const session = await getSession();
   if (!session) {
@@ -46,8 +49,8 @@ export default function VoicePage() {
   const [isSending, setIsSending] = useState(false);
   const [llmResult, setLlmResult] = useState<Record<string, unknown> | null>(null);
   const [llmError, setLlmError] = useState<string | null>(null);
-  const [isCreating, setIsCreating] = useState(false);
-  const [createError, setCreateError] = useState<string | null>(null);
+  const [createResult, setCreateResult] = useState<Record<string, unknown> | null>(null);
+  const [createSuccess, setCreateSuccess] = useState<string | null>(null);
 
   const recognitionRef = useRef<any>(null);
   const finalTextRef = useRef<string>('');
@@ -115,7 +118,8 @@ export default function VoicePage() {
     setError(null);
     setLlmResult(null);
     setLlmError(null);
-    setCreateError(null);
+    setCreateResult(null);
+    setCreateSuccess(null);
   }, []);
 
   const createRecognition = useCallback(() => {
@@ -210,7 +214,8 @@ export default function VoicePage() {
       setTranscript('');
       setLlmResult(null);
       setLlmError(null);
-      setCreateError(null);
+      setCreateResult(null);
+      setCreateSuccess(null);
     }
     createRecognition();
     try {
@@ -243,75 +248,83 @@ export default function VoicePage() {
     if (!text) {
       setLlmError('Enter or dictate text first');
       setLlmResult(null);
+      setCreateResult(null);
+      setCreateSuccess(null);
       return;
     }
     setIsSending(true);
     setLlmError(null);
     setLlmResult(null);
-    setCreateError(null);
+    setCreateResult(null);
+    setCreateSuccess(null);
+
     try {
-      const res = await fetch('/api/voice/parse-expense', {
+      const parseRes = await fetch('/api/voice/parse-expense', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text }),
       });
-      const data = (await res.json()) as { ok: boolean; result?: Record<string, unknown>; error?: string };
-      if (data.ok && data.result) {
-        setLlmResult(data.result);
-        setLlmError(null);
-      } else {
-        setLlmError(data.error ?? 'Unknown error');
+      const parseData = (await parseRes.json()) as {
+        ok: boolean;
+        result?: Record<string, unknown>;
+        error?: string;
+      };
+      if (!parseData.ok || !parseData.result) {
+        setLlmError(parseData.error ?? 'Unknown error');
         setLlmResult(null);
+        return;
       }
-    } catch (e) {
-      setLlmError(e instanceof Error ? e.message : 'Failed to contact server');
-      setLlmResult(null);
-    } finally {
-      setIsSending(false);
-    }
-  }, [status, transcript, finishRecording]);
+      setLlmResult(parseData.result);
 
-  const canCreateTransaction =
-    llmResult != null &&
-    typeof llmResult.amount === 'number' &&
-    Number.isFinite(llmResult.amount) &&
-    (llmResult.amount as number) > 0;
+      const session = await getSession();
+      if (!session) {
+        setLlmError('Not signed in');
+        return;
+      }
+      const accessToken = (session as { access_token?: string }).access_token;
+      if (!accessToken) {
+        setLlmError('Session expired');
+        return;
+      }
 
-  const handleCreateTransaction = useCallback(async () => {
-    if (!canCreateTransaction || !llmResult) return;
-    const session = await getSession();
-    if (!session) {
-      setCreateError('Not signed in');
-      return;
-    }
-    const accessToken = (session as { access_token?: string }).access_token;
-    if (!accessToken) {
-      setCreateError('Session expired');
-      return;
-    }
-    setCreateError(null);
-    setIsCreating(true);
-    try {
-      const res = await fetch('/api/voice/create-expense', {
+      const createRes = await fetch('/api/voice/create-expense', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${accessToken}`,
         },
-        body: JSON.stringify({ text: transcript, parsed: llmResult }),
+        body: JSON.stringify({ text, parsed: parseData.result }),
       });
-      const data = (await res.json()) as { ok: boolean; error?: string };
-      if (data.ok) {
-        router.push('/app?voice_tx=1');
+      const createData = (await createRes.json()) as {
+        ok: boolean;
+        error?: string;
+        parsed?: Record<string, unknown>;
+        resolved?: Record<string, unknown>;
+        transaction?: Record<string, unknown>;
+      };
+      if (!createData.ok) {
+        setLlmError(createData.error ?? 'Failed to create transaction');
         return;
       }
-      setCreateError(data.error ?? 'Failed to create transaction');
+
+      setCreateResult({
+        parsed: createData.parsed,
+        resolved: createData.resolved,
+        transaction: createData.transaction,
+      });
+      setCreateSuccess('Expense created ✅');
+      if (AUTO_REDIRECT) {
+        setTimeout(() => router.push('/app'), REDIRECT_DELAY_MS);
+      }
     } catch (e) {
-      setCreateError(e instanceof Error ? e.message : 'Failed to contact server');
+      setLlmError(e instanceof Error ? e.message : 'Failed to contact server');
+      setLlmResult(null);
+      setCreateResult(null);
+      setCreateSuccess(null);
     } finally {
-      setIsCreating(false);
+      setIsSending(false);
     }
-  }, [canCreateTransaction, llmResult, transcript, router]);
+  }, [status, transcript, finishRecording, router]);
 
   const handleLanguageChange = useCallback(
     async (lang: UserLanguage) => {
@@ -475,6 +488,12 @@ export default function VoicePage() {
         </div>
       )}
 
+      {createSuccess && (
+        <div className="mb-4 rounded-2xl border border-green-200 bg-green-50 p-3 text-sm text-green-800 font-medium">
+          {createSuccess}
+        </div>
+      )}
+
       <div className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm mb-4">
         <h2 className="text-sm font-medium text-neutral-600 mb-2">Transcript</h2>
         <textarea
@@ -494,7 +513,7 @@ export default function VoicePage() {
             setHasInteracted(true);
             if (status !== 'recording') startRecording();
           }}
-          disabled={status === 'recording' || isCreating}
+          disabled={status === 'recording' || isSending}
           className="rounded-2xl border border-neutral-200 bg-white px-5 py-2.5 text-sm font-medium text-neutral-800 shadow-sm hover:bg-neutral-50 disabled:opacity-50 disabled:pointer-events-none"
         >
           Start
@@ -502,7 +521,7 @@ export default function VoicePage() {
         <button
           type="button"
           onClick={handleClear}
-          disabled={isCreating}
+          disabled={isSending}
           className="rounded-2xl border border-neutral-200 bg-white px-5 py-2.5 text-sm font-medium text-neutral-800 shadow-sm hover:bg-neutral-50 disabled:opacity-50 disabled:pointer-events-none"
         >
           Clear
@@ -510,38 +529,35 @@ export default function VoicePage() {
         <button
           type="button"
           onClick={handleSend}
-          disabled={isSending || isCreating}
+          disabled={isSending}
           className="rounded-2xl border border-neutral-200 bg-white px-5 py-2.5 text-sm font-medium text-neutral-800 shadow-sm hover:bg-neutral-50 disabled:opacity-50 disabled:pointer-events-none"
         >
           {isSending ? 'Sending…' : 'Send'}
         </button>
-        <button
-          type="button"
-          onClick={handleCreateTransaction}
-          disabled={!canCreateTransaction || isCreating}
-          className="rounded-2xl border border-neutral-200 bg-white px-5 py-2.5 text-sm font-medium text-neutral-800 shadow-sm hover:bg-neutral-50 disabled:opacity-50 disabled:pointer-events-none"
-        >
-          {isCreating ? 'Creating…' : 'Create transaction'}
-        </button>
       </div>
 
-      {(llmResult != null || llmError != null || createError != null) && (
-        <div className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm">
-          <h2 className="text-sm font-medium text-neutral-600 mb-2">LLM result</h2>
+      {(llmResult != null || llmError != null || createResult != null) && (
+        <div className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm space-y-4">
           {llmError != null && (
-            <div className="mb-3 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+            <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
               {llmError}
             </div>
           )}
-          {createError != null && (
-            <div className="mb-3 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-              {createError}
+          {llmResult != null && (
+            <div>
+              <h2 className="text-sm font-medium text-neutral-600 mb-2">Parsed (LLM)</h2>
+              <pre className="overflow-x-auto rounded-xl border border-neutral-200 bg-neutral-50 p-3 text-sm text-neutral-800 whitespace-pre-wrap break-words">
+                {JSON.stringify(llmResult, null, 2)}
+              </pre>
             </div>
           )}
-          {llmResult != null && (
-            <pre className="overflow-x-auto rounded-xl border border-neutral-200 bg-neutral-50 p-3 text-sm text-neutral-800 whitespace-pre-wrap break-words">
-              {JSON.stringify(llmResult, null, 2)}
-            </pre>
+          {createResult != null && (
+            <div>
+              <h2 className="text-sm font-medium text-neutral-600 mb-2">Transaction created</h2>
+              <pre className="overflow-x-auto rounded-xl border border-neutral-200 bg-neutral-50 p-3 text-sm text-neutral-800 whitespace-pre-wrap break-words">
+                {JSON.stringify(createResult, null, 2)}
+              </pre>
+            </div>
           )}
         </div>
       )}
