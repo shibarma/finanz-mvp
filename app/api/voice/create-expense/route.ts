@@ -107,7 +107,7 @@ export async function POST(request: NextRequest) {
     }
 
     const text = typeof body.text === 'string' ? body.text : '';
-    let parsed: ParsedInput & { amount?: number };
+    let parsed: ParsedInput;
 
     if (body.parsed != null && typeof body.parsed === 'object') {
       parsed = body.parsed as ParsedInput;
