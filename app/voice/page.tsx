@@ -46,6 +46,8 @@ export default function VoicePage() {
   const [isSending, setIsSending] = useState(false);
   const [llmResult, setLlmResult] = useState<Record<string, unknown> | null>(null);
   const [llmError, setLlmError] = useState<string | null>(null);
+  const [isCreating, setIsCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
 
   const recognitionRef = useRef<any>(null);
   const finalTextRef = useRef<string>('');
@@ -113,6 +115,7 @@ export default function VoicePage() {
     setError(null);
     setLlmResult(null);
     setLlmError(null);
+    setCreateError(null);
   }, []);
 
   const createRecognition = useCallback(() => {
@@ -207,6 +210,7 @@ export default function VoicePage() {
       setTranscript('');
       setLlmResult(null);
       setLlmError(null);
+      setCreateError(null);
     }
     createRecognition();
     try {
@@ -244,6 +248,7 @@ export default function VoicePage() {
     setIsSending(true);
     setLlmError(null);
     setLlmResult(null);
+    setCreateError(null);
     try {
       const res = await fetch('/api/voice/parse-expense', {
         method: 'POST',
@@ -265,6 +270,48 @@ export default function VoicePage() {
       setIsSending(false);
     }
   }, [status, transcript, finishRecording]);
+
+  const canCreateTransaction =
+    llmResult != null &&
+    typeof llmResult.amount === 'number' &&
+    Number.isFinite(llmResult.amount) &&
+    (llmResult.amount as number) > 0;
+
+  const handleCreateTransaction = useCallback(async () => {
+    if (!canCreateTransaction || !llmResult) return;
+    const session = await getSession();
+    if (!session) {
+      setCreateError('Not signed in');
+      return;
+    }
+    const accessToken = (session as { access_token?: string }).access_token;
+    if (!accessToken) {
+      setCreateError('Session expired');
+      return;
+    }
+    setCreateError(null);
+    setIsCreating(true);
+    try {
+      const res = await fetch('/api/voice/create-expense', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ text: transcript, parsed: llmResult }),
+      });
+      const data = (await res.json()) as { ok: boolean; error?: string };
+      if (data.ok) {
+        router.push('/app?voice_tx=1');
+        return;
+      }
+      setCreateError(data.error ?? 'Failed to create transaction');
+    } catch (e) {
+      setCreateError(e instanceof Error ? e.message : 'Failed to contact server');
+    } finally {
+      setIsCreating(false);
+    }
+  }, [canCreateTransaction, llmResult, transcript, router]);
 
   const handleLanguageChange = useCallback(
     async (lang: UserLanguage) => {
@@ -447,7 +494,7 @@ export default function VoicePage() {
             setHasInteracted(true);
             if (status !== 'recording') startRecording();
           }}
-          disabled={status === 'recording'}
+          disabled={status === 'recording' || isCreating}
           className="rounded-2xl border border-neutral-200 bg-white px-5 py-2.5 text-sm font-medium text-neutral-800 shadow-sm hover:bg-neutral-50 disabled:opacity-50 disabled:pointer-events-none"
         >
           Start
@@ -455,26 +502,40 @@ export default function VoicePage() {
         <button
           type="button"
           onClick={handleClear}
-          className="rounded-2xl border border-neutral-200 bg-white px-5 py-2.5 text-sm font-medium text-neutral-800 shadow-sm hover:bg-neutral-50"
+          disabled={isCreating}
+          className="rounded-2xl border border-neutral-200 bg-white px-5 py-2.5 text-sm font-medium text-neutral-800 shadow-sm hover:bg-neutral-50 disabled:opacity-50 disabled:pointer-events-none"
         >
           Clear
         </button>
         <button
           type="button"
           onClick={handleSend}
-          disabled={isSending}
+          disabled={isSending || isCreating}
           className="rounded-2xl border border-neutral-200 bg-white px-5 py-2.5 text-sm font-medium text-neutral-800 shadow-sm hover:bg-neutral-50 disabled:opacity-50 disabled:pointer-events-none"
         >
           {isSending ? 'Sending…' : 'Send'}
         </button>
+        <button
+          type="button"
+          onClick={handleCreateTransaction}
+          disabled={!canCreateTransaction || isCreating}
+          className="rounded-2xl border border-neutral-200 bg-white px-5 py-2.5 text-sm font-medium text-neutral-800 shadow-sm hover:bg-neutral-50 disabled:opacity-50 disabled:pointer-events-none"
+        >
+          {isCreating ? 'Creating…' : 'Create transaction'}
+        </button>
       </div>
 
-      {(llmResult != null || llmError != null) && (
+      {(llmResult != null || llmError != null || createError != null) && (
         <div className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm">
           <h2 className="text-sm font-medium text-neutral-600 mb-2">LLM result</h2>
           {llmError != null && (
             <div className="mb-3 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
               {llmError}
+            </div>
+          )}
+          {createError != null && (
+            <div className="mb-3 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+              {createError}
             </div>
           )}
           {llmResult != null && (
