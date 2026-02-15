@@ -358,28 +358,29 @@ export default function VoicePage() {
 
       setUserId(session.user.id);
 
+      const { error: upsertError } = await supabase
+        .from('user_settings')
+        .upsert(
+          { user_id: session.user.id, language_code: 'en' },
+          { onConflict: 'user_id' }
+        );
+      if (upsertError) {
+        console.warn('user_settings upsert failed:', upsertError.message);
+      }
+
       const { data: row, error: fetchError } = await supabase
         .from('user_settings')
         .select('language_code')
         .eq('user_id', session.user.id)
         .maybeSingle();
-
       if (fetchError) {
-        setError(fetchError.message);
-        setSessionChecked(true);
-        return;
+        console.warn('user_settings select failed:', fetchError.message);
       }
 
-      if (row && (row.language_code === 'en' || row.language_code === 'ru' || row.language_code === 'de')) {
-        setUserLanguage(row.language_code as UserLanguage);
+      const validLang = row?.language_code;
+      if (validLang === 'en' || validLang === 'ru' || validLang === 'de') {
+        setUserLanguage(validLang as UserLanguage);
       } else {
-        const { error: insertError } = await supabase.from('user_settings').insert({
-          user_id: session.user.id,
-          language_code: 'en',
-        });
-        if (insertError) {
-          setError(insertError.message);
-        }
         setUserLanguage('en');
       }
 
