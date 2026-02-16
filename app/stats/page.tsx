@@ -2101,7 +2101,7 @@ export default function StatsPage() {
               </ResponsiveContainer>
             )
           ) : (
-            <p className="text-sm text-neutral-600">No data для отображения.</p>
+            <p className="text-sm text-neutral-600">No data to display.</p>
           )}
         </section>
 
@@ -2304,11 +2304,11 @@ export default function StatsPage() {
             </div>
           ) : selectedBrokerId === '' ? (
             <div className="flex min-h-[200px] items-center justify-center rounded-lg border border-neutral-200 bg-neutral-50 p-8">
-              <p className="text-sm text-neutral-500">No data за выбранный период</p>
+              <p className="text-sm text-neutral-500">No data for selected period</p>
             </div>
           ) : (
             <div className="flex min-h-[200px] items-center justify-center rounded-lg border border-neutral-200 bg-neutral-50 p-8">
-              <p className="text-sm text-neutral-500">No data за выбранный период</p>
+              <p className="text-sm text-neutral-500">No data for selected period</p>
             </div>
           )}
         </section>
@@ -2424,7 +2424,7 @@ export default function StatsPage() {
             </div>
           ) : (
             <div className="flex min-h-[200px] items-center justify-center rounded-lg border border-neutral-200 bg-neutral-50 p-8">
-              <p className="text-sm text-neutral-500">No crypto data за выбранный период</p>
+              <p className="text-sm text-neutral-500">No crypto data for selected period</p>
             </div>
           )}
         </section>

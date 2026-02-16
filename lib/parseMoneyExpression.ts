@@ -11,13 +11,13 @@ type Token =
 
 export function parseMoneyExpression(input: string): ParseMoneyResult {
   if (!input || !input.trim()) {
-    return { ok: false, error: 'Некорректное выражение.' };
+    return { ok: false, error: 'Invalid expression.' };
   }
 
   let expr = input.trim().replace(/,/g, '.');
 
   if (!ALLOWED_CHARS_REGEX.test(expr)) {
-    return { ok: false, error: 'Недопустимые символы в выражении.' };
+    return { ok: false, error: 'Invalid characters in expression.' };
   }
 
   try {
@@ -26,13 +26,13 @@ export function parseMoneyExpression(input: string): ParseMoneyResult {
     const value = evalRpn(rpn);
 
     if (!Number.isFinite(value)) {
-      return { ok: false, error: 'Некорректное выражение.' };
+      return { ok: false, error: 'Invalid expression.' };
     }
 
     const rounded = Math.round(value * 100) / 100;
     return { ok: true, value: rounded };
   } catch {
-    return { ok: false, error: 'Некорректное выражение.' };
+    return { ok: false, error: 'Invalid expression.' };
   }
 }
 

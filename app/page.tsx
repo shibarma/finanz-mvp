@@ -24,7 +24,7 @@ export default function Home() {
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-neutral-50 text-neutral-800">
-      <p className="text-base text-neutral-600">Проверяем сессию...</p>
+      <p className="text-base text-neutral-600">Checking session...</p>
     </div>
   );
 }

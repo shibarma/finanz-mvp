@@ -32,10 +32,10 @@ export default function ForgotPasswordPage() {
       if (resetError) {
         setError(resetError.message);
       } else {
-        setSuccessMessage('Письмо отправлено, проверьте почту.');
+        setSuccessMessage('Email sent, please check your inbox.');
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Не удалось отправить письмо для сброса пароля.');
+      setError(err instanceof Error ? err.message : 'Failed to send password reset email.');
     } finally {
       setLoading(false);
     }
@@ -45,7 +45,7 @@ export default function ForgotPasswordPage() {
     <div className="flex min-h-screen items-center justify-center bg-neutral-50 px-4">
       <div className="w-full max-w-md rounded-2xl border border-neutral-200 bg-white p-8 shadow-sm">
         <h1 className="mb-6 text-center text-2xl font-semibold text-neutral-900">
-          Восстановление пароля
+          Password recovery
         </h1>
         <form className="space-y-4" onSubmit={handleSubmit}>
           <div className="space-y-2">
@@ -78,7 +78,7 @@ export default function ForgotPasswordPage() {
             disabled={loading}
             className="flex w-full items-center justify-center rounded-lg bg-neutral-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:bg-neutral-400"
           >
-            {loading ? 'Отправляем...' : 'Отправить письмо для сброса'}
+            {loading ? 'Sending...' : 'Send reset email'}
           </button>
         </form>
       </div>

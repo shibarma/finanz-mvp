@@ -3063,7 +3063,7 @@ export default function FinanceAppPage() {
                       </p>
                       {account.kind === 'credit' && accBalance.creditUsed !== undefined && (
                         <p className="mt-1 text-xs text-neutral-600">
-                          Credit used: {formatMoney(accBalance.creditUsed, getAccountCurrency(account))} из{' '}
+                          Credit used: {formatMoney(accBalance.creditUsed, getAccountCurrency(account))} of{' '}
                           {formatMoney(account.credit_limit || 0, getAccountCurrency(account))}
                         </p>
                       )}

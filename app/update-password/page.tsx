@@ -28,17 +28,17 @@ export default function UpdatePasswordPage() {
     setSuccessMessage(null);
 
     if (!hasSession) {
-      setError('Нет активной сессии. Откройте ссылку из письма заново.');
+      setError('No active session. Please open the link from the email again.');
       return;
     }
 
     if (!newPassword || !confirmPassword) {
-      setError('Введите новый пароль и его подтверждение.');
+      setError('Please enter new password and confirmation.');
       return;
     }
 
     if (newPassword !== confirmPassword) {
-      setError('Пароли не совпадают.');
+      setError('Passwords do not match.');
       return;
     }
 
@@ -49,13 +49,13 @@ export default function UpdatePasswordPage() {
       if (updateError) {
         setError(updateError.message);
       } else {
-        setSuccessMessage('Пароль обновлён.');
+        setSuccessMessage('Password updated.');
         setTimeout(() => {
           router.replace('/app');
         }, 1500);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Не удалось обновить пароль.');
+      setError(err instanceof Error ? err.message : 'Failed to update password.');
     } finally {
       setLoading(false);
     }
@@ -66,10 +66,10 @@ export default function UpdatePasswordPage() {
       <div className="flex min-h-screen items-center justify-center bg-neutral-50 px-4">
         <div className="w-full max-w-md rounded-2xl border border-neutral-200 bg-white p-8 shadow-sm">
           <h1 className="mb-4 text-center text-2xl font-semibold text-neutral-900">
-            Восстановление пароля
+            Password recovery
           </h1>
           <p className="text-center text-sm text-neutral-600">
-            Нет активной сессии. Пожалуйста, откройте ссылку из письма восстановления ещё раз.
+            No active session. Please open the recovery email link again.
           </p>
         </div>
       </div>
@@ -79,11 +79,11 @@ export default function UpdatePasswordPage() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-neutral-50 px-4">
       <div className="w-full max-w-md rounded-2xl border border-neutral-200 bg-white p-8 shadow-sm">
-        <h1 className="mb-6 text-center text-2xl font-semibold text-neutral-900">Смена пароля</h1>
+        <h1 className="mb-6 text-center text-2xl font-semibold text-neutral-900">Change password</h1>
         <form className="space-y-4" onSubmit={handleSubmit}>
           <div className="space-y-2">
             <label className="block text-sm font-medium text-neutral-700" htmlFor="new-password">
-              Новый пароль
+              New password
             </label>
             <input
               id="new-password"
@@ -92,7 +92,7 @@ export default function UpdatePasswordPage() {
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
               className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
-              placeholder="Введите новый пароль"
+              placeholder="Enter new password"
             />
           </div>
           <div className="space-y-2">
@@ -100,7 +100,7 @@ export default function UpdatePasswordPage() {
               className="block text-sm font-medium text-neutral-700"
               htmlFor="confirm-new-password"
             >
-              Подтверждение пароля
+              Confirm password
             </label>
             <input
               id="confirm-new-password"
@@ -109,7 +109,7 @@ export default function UpdatePasswordPage() {
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
-              placeholder="Повторите новый пароль"
+              placeholder="Repeat new password"
             />
           </div>
 
@@ -128,7 +128,7 @@ export default function UpdatePasswordPage() {
             disabled={loading || hasSession === null}
             className="flex w-full items-center justify-center rounded-lg bg-neutral-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:bg-neutral-400"
           >
-            {loading ? 'Сохраняем...' : 'Сменить пароль'}
+            {loading ? 'Saving...' : 'Change password'}
           </button>
         </form>
       </div>

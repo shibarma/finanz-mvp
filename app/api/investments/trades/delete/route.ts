@@ -118,7 +118,7 @@ export async function POST(request: NextRequest) {
 
     if (tradeError || !trade) {
       return NextResponse.json(
-        { ok: false, error: 'Сделка не найдена.' },
+        { ok: false, error: 'Trade not found.' },
         { status: 404 },
       );
     }
@@ -126,7 +126,7 @@ export async function POST(request: NextRequest) {
     const tradeRow = trade as InvestmentTradeRow;
     if (tradeRow.user_id !== userId) {
       return NextResponse.json(
-        { ok: false, error: 'Сделка не найдена.' },
+        { ok: false, error: 'Trade not found.' },
         { status: 404 },
       );
     }
@@ -139,7 +139,7 @@ export async function POST(request: NextRequest) {
 
     if (posError || !position) {
       return NextResponse.json(
-        { ok: false, error: 'Позиция не найдена.' },
+        { ok: false, error: 'Position not found.' },
         { status: 404 },
       );
     }
@@ -147,7 +147,7 @@ export async function POST(request: NextRequest) {
     const posRow = position as PositionRow;
     if (posRow.user_id !== userId) {
       return NextResponse.json(
-        { ok: false, error: 'Позиция не найдена.' },
+        { ok: false, error: 'Position not found.' },
         { status: 404 },
       );
     }
@@ -160,7 +160,7 @@ export async function POST(request: NextRequest) {
 
     if (accError || !account) {
       return NextResponse.json(
-        { ok: false, error: 'Брокерский счёт не найден.' },
+        { ok: false, error: 'Broker account not found.' },
         { status: 404 },
       );
     }
@@ -168,7 +168,7 @@ export async function POST(request: NextRequest) {
     const accRow = account as AccountRow;
     if (accRow.user_id !== userId) {
       return NextResponse.json(
-        { ok: false, error: 'Брокерский счёт не найден.' },
+        { ok: false, error: 'Broker account not found.' },
         { status: 404 },
       );
     }
@@ -191,7 +191,7 @@ export async function POST(request: NextRequest) {
     const side = tradeRow.side.toLowerCase();
     if (side !== 'buy' && side !== 'sell') {
       return NextResponse.json(
-        { ok: false, error: 'Некорректный тип сделки.' },
+        { ok: false, error: 'Invalid trade type.' },
         { status: 400 },
       );
     }
@@ -203,7 +203,7 @@ export async function POST(request: NextRequest) {
           {
             ok: false,
             error:
-              'Невозможно удалить покупку: недостаточно количества (часть позиции уже продана).',
+              'Cannot delete buy trade: insufficient quantity (part of position already sold).',
           },
           { status: 400 },
         );
@@ -216,7 +216,7 @@ export async function POST(request: NextRequest) {
           {
             ok: false,
             error:
-              'Удалите сначала все покупки позиций или отредактируйте состояние брокерского счёта в настройках.',
+              'Delete all buy trades first or edit the broker account state in settings.',
           },
           { status: 400 },
         );
@@ -234,7 +234,7 @@ export async function POST(request: NextRequest) {
 
     if (updatePosError) {
       return NextResponse.json(
-        { ok: false, error: `Ошибка обновления позиции: ${updatePosError.message}` },
+        { ok: false, error: `Error updating position: ${updatePosError.message}` },
         { status: 500 },
       );
     }
@@ -248,7 +248,7 @@ export async function POST(request: NextRequest) {
 
       if (delTxError) {
         return NextResponse.json(
-          { ok: false, error: `Ошибка удаления транзакции: ${delTxError.message}` },
+          { ok: false, error: `Error deleting transaction: ${delTxError.message}` },
           { status: 500 },
         );
       }
@@ -262,7 +262,7 @@ export async function POST(request: NextRequest) {
 
     if (delTradeError) {
       return NextResponse.json(
-        { ok: false, error: `Ошибка удаления сделки: ${delTradeError.message}` },
+        { ok: false, error: `Error deleting trade: ${delTradeError.message}` },
         { status: 500 },
       );
     }
