@@ -163,6 +163,43 @@ function addMonthsClamped(date: Date, months: number): Date {
   return new Date(newYear, newMonthIndex0, clampedDay);
 }
 
+// Budget period helper: find [startYmd, endYmd] of the monthly period containing anchorYmd
+function getBudgetPeriodForAnchor(
+  budgetStartYmd: string,
+  anchorYmd: string,
+): { startYmd: string; endYmd: string } {
+  const startDate = parseYmd(budgetStartYmd);
+  const anchorDate = parseYmd(anchorYmd);
+
+  let periodStart = new Date(startDate.getTime());
+
+  while (true) {
+    const nextStart = addMonthsClamped(periodStart, 1);
+    const periodEnd = new Date(nextStart);
+    periodEnd.setDate(periodEnd.getDate() - 1);
+
+    // If anchor is inside [periodStart, periodEnd] (inclusive), return this period
+    if (anchorDate >= periodStart && anchorDate <= periodEnd) {
+      return {
+        startYmd: formatYmd(periodStart),
+        endYmd: formatYmd(periodEnd),
+      };
+    }
+
+    // If anchor is after this period, advance to next period
+    if (anchorDate > periodEnd) {
+      periodStart = nextStart;
+      continue;
+    }
+
+    // If anchor is before the very first periodStart, return the first period
+    return {
+      startYmd: formatYmd(periodStart),
+      endYmd: formatYmd(periodEnd),
+    };
+  }
+}
+
 export default function StatsPage() {
   const router = useRouter();
   const [sessionChecked, setSessionChecked] = useState(false);
@@ -206,6 +243,7 @@ export default function StatsPage() {
   const [budgetCategoriesMap, setBudgetCategoriesMap] = useState<Map<string, string[]>>(new Map());
   const [budgetsLoading, setBudgetsLoading] = useState(false);
   const [budgetsError, setBudgetsError] = useState<string | null>(null);
+  const [earliestBudgetPeriodStartYmd, setEarliestBudgetPeriodStartYmd] = useState<string | null>(null);
 
   useEffect(() => {
     const init = async () => {
@@ -343,6 +381,7 @@ export default function StatsPage() {
 
       if (budgetList.length === 0) {
         setBudgetCategoriesMap(new Map());
+        setEarliestBudgetPeriodStartYmd(null);
         setBudgetsLoading(false);
         return;
       }
@@ -369,6 +408,18 @@ export default function StatsPage() {
         map.set(r.budget_id, arr);
       }
       setBudgetCategoriesMap(map);
+
+      // Compute earliest budget period start (for current anchor day) across all budgets
+      const anchorYmd = new Date().toISOString().slice(0, 10);
+      let earliestStart: string | null = null;
+      for (const b of budgetList) {
+        const budgetStartYmd = b.start_date.slice(0, 10);
+        const { startYmd } = getBudgetPeriodForAnchor(budgetStartYmd, anchorYmd);
+        if (!earliestStart || startYmd < earliestStart) {
+          earliestStart = startYmd;
+        }
+      }
+      setEarliestBudgetPeriodStartYmd(earliestStart);
     } catch (err) {
       setBudgetsError(err instanceof Error ? err.message : 'Failed to load budgets');
     } finally {
@@ -376,17 +427,32 @@ export default function StatsPage() {
     }
   };
 
-  const loadTransactions = async (uid: string, fromDate: string, toDate: string) => {
-    // Загружаем транзакции за период + 90 дней назад для корректного расчёта баланса
+  const loadTransactions = async (uid: string, fromDate: string, _toDate: string) => {
+    // Загружаем транзакции за расширенный период:
+    // - минимум 90 дней до выбранного fromDate
+    // - и, при наличии бюджетов, с начала текущего бюджетного периода (по anchorYmd)
     const extendedFrom = new Date(fromDate);
     extendedFrom.setDate(extendedFrom.getDate() - 90);
-    const extendedFromStr = extendedFrom.toISOString();
+
+    let finalExtendedFrom = extendedFrom;
+    if (earliestBudgetPeriodStartYmd) {
+      const budgetStartDate = parseYmd(earliestBudgetPeriodStartYmd);
+      if (budgetStartDate < finalExtendedFrom) {
+        finalExtendedFrom = budgetStartDate;
+      }
+    }
+
+    const extendedFromStr = finalExtendedFrom.toISOString();
+
+    // Верхнюю границу для транзакций берём как "сейчас", чтобы бюджеты всегда
+    // видели полную текущую бюджетную итерацию, независимо от фильтров Stats.
+    const nowIso = new Date().toISOString();
 
     const { data, error: fetchError } = await supabase
       .from('transactions')
       .select('*')
       .eq('user_id', uid)
-      .lte('created_at', toDate)
+      .lte('created_at', nowIso)
       .gte('created_at', extendedFromStr)
       .order('created_at', { ascending: true });
 
@@ -872,7 +938,7 @@ export default function StatsPage() {
 
   // Budget analytics: spent per budget for the selected period
   const budgetAnalytics = useMemo(() => {
-    if (!dateFrom || !dateTo || budgets.length === 0 || accounts.length === 0) {
+    if (budgets.length === 0 || accounts.length === 0) {
       return {
         items: [] as Array<{
           budget: Budget;
@@ -888,7 +954,8 @@ export default function StatsPage() {
       };
     }
 
-    const effectiveTo = dateTo || new Date().toISOString().split('T')[0];
+    // Anchor budgets to "today" (current UTC day), independent from Stats date filters
+    const anchorYmd = new Date().toISOString().slice(0, 10);
 
     // category_id -> budget_id (first budget wins; track duplicates)
     const categoryToBudget = new Map<string, string>();
@@ -932,25 +999,12 @@ export default function StatsPage() {
 
       const budgetCatSet = new Set(catIds);
 
-      // Find budget period containing effectiveTo (monthly recurrence from start_date)
-      const startDate = parseYmd(budget.start_date.slice(0, 10));
-      let periodStart = new Date(startDate.getTime());
-      let nextStart = addMonthsClamped(periodStart, 1);
-      let periodEnd = new Date(nextStart);
-      periodEnd.setDate(periodEnd.getDate() - 1);
-
-      const effectiveToDate = new Date(effectiveTo);
-      while (periodEnd < effectiveToDate) {
-        periodStart = nextStart;
-        nextStart = addMonthsClamped(periodStart, 1);
-        periodEnd = new Date(nextStart);
-        periodEnd.setDate(periodEnd.getDate() - 1);
-      }
-
-      const periodStartYmd = formatYmd(periodStart);
-      const periodEndYmd = formatYmd(periodEnd);
-      const windowStartYmd = dateFrom > periodStartYmd ? dateFrom : periodStartYmd;
-      const windowEndYmd = dateTo < periodEndYmd ? dateTo : periodEndYmd;
+      // Find budget period containing anchorYmd (monthly recurrence from start_date)
+      const budgetStartYmd = budget.start_date.slice(0, 10);
+      const { startYmd: periodStartYmd, endYmd: periodEndYmd } = getBudgetPeriodForAnchor(
+        budgetStartYmd,
+        anchorYmd,
+      );
 
       let spent = 0;
 
@@ -959,7 +1013,8 @@ export default function StatsPage() {
         if (!budgetCatSet.has(tx.category_id)) return;
 
         const txYmd = tx.created_at.slice(0, 10);
-        if (txYmd < windowStartYmd || txYmd > windowEndYmd) return;
+        // Budgets use the full budget period only, independent from Stats date filters
+        if (txYmd < periodStartYmd || txYmd > periodEndYmd) return;
 
         const account = accountsById.get(tx.account_id);
         const currency = (account?.currency || 'EUR').toUpperCase();
@@ -984,8 +1039,8 @@ export default function StatsPage() {
         limit,
         spent,
         remaining,
-        windowStart: formatYmd(periodStart),
-        windowEnd: formatYmd(periodEnd),
+        windowStart: periodStartYmd,
+        windowEnd: periodEndYmd,
       });
     }
 
@@ -1003,8 +1058,6 @@ export default function StatsPage() {
     transactions,
     accounts,
     fxRows,
-    dateFrom,
-    dateTo,
   ]);
 
   const getInstrumentKind = (pos: PositionRow): string | null => {
