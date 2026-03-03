@@ -409,14 +409,24 @@ export default function StatsPage() {
       }
       setBudgetCategoriesMap(map);
 
-      // Compute earliest budget period start (for current anchor day) across all budgets
+      // Compute earliest budget period start (for current and previous periods across all budgets)
       const anchorYmd = new Date().toISOString().slice(0, 10);
       let earliestStart: string | null = null;
       for (const b of budgetList) {
         const budgetStartYmd = b.start_date.slice(0, 10);
-        const { startYmd } = getBudgetPeriodForAnchor(budgetStartYmd, anchorYmd);
-        if (!earliestStart || startYmd < earliestStart) {
-          earliestStart = startYmd;
+        const { startYmd: currentStartYmd } = getBudgetPeriodForAnchor(budgetStartYmd, anchorYmd);
+
+        // Current period start
+        if (!earliestStart || currentStartYmd < earliestStart) {
+          earliestStart = currentStartYmd;
+        }
+
+        // Previous period start (one month before currentStartYmd)
+        const currentStartDate = parseYmd(currentStartYmd);
+        const prevStartDate = addMonthsClamped(currentStartDate, -1);
+        const prevStartYmd = formatYmd(prevStartDate);
+        if (!earliestStart || prevStartYmd < earliestStart) {
+          earliestStart = prevStartYmd;
         }
       }
       setEarliestBudgetPeriodStartYmd(earliestStart);
@@ -936,7 +946,7 @@ export default function StatsPage() {
     return top10;
   }, [transactions, categories, dateFrom, dateTo]);
 
-  // Budget analytics: spent per budget for the selected period
+  // Budget analytics: spent per budget for the current period (anchored to today)
   const budgetAnalytics = useMemo(() => {
     if (budgets.length === 0 || accounts.length === 0) {
       return {
@@ -1006,39 +1016,72 @@ export default function StatsPage() {
         anchorYmd,
       );
 
-      let spent = 0;
+      // Previous period boundaries: immediately before the current period
+      const periodStartDate = parseYmd(periodStartYmd);
+      const prevStartDate = addMonthsClamped(periodStartDate, -1);
+      const prevEndDate = new Date(periodStartDate);
+      prevEndDate.setDate(prevEndDate.getDate() - 1);
+      const prevStartYmd = formatYmd(prevStartDate);
+      const prevEndYmd = formatYmd(prevEndDate);
+
+      let spentPrev = 0;
+      let spentCur = 0;
 
       transactions.forEach((tx) => {
         if (tx.kind !== 'expense' || tx.is_investment || !tx.category_id) return;
         if (!budgetCatSet.has(tx.category_id)) return;
 
         const txYmd = tx.created_at.slice(0, 10);
-        // Budgets use the full budget period only, independent from Stats date filters
-        if (txYmd < periodStartYmd || txYmd > periodEndYmd) return;
+        // Budgets use full previous and current budget periods, independent from Stats date filters
+        if (txYmd < prevStartYmd || txYmd > periodEndYmd) return;
 
         const account = accountsById.get(tx.account_id);
         const currency = (account?.currency || 'EUR').toUpperCase();
 
+        const addToBucket = (amountEur: number) => {
+          if (txYmd >= prevStartYmd && txYmd <= prevEndYmd) {
+            spentPrev += amountEur;
+          } else if (txYmd >= periodStartYmd && txYmd <= periodEndYmd) {
+            spentCur += amountEur;
+          }
+        };
+
         if (currency === 'EUR') {
-          spent += tx.amount;
+          addToBucket(tx.amount);
         } else if (currency === 'USD') {
           const rate = getFxRate(txYmd);
           if (rate === null) {
             fxSkippedWarning = true;
           } else {
-            spent += tx.amount * rate;
+            addToBucket(tx.amount * rate);
           }
         }
       });
 
-      const limit = budget.base_limit_eur;
-      const remaining = limit - spent;
+      const base = budget.base_limit_eur;
+
+      let effectiveLimitCur: number;
+      let remainingCur: number;
+
+      if (budget.carry_over) {
+        // Previous period (no further history yet in MVP)
+        const effectiveLimitPrev = base;
+        const remainingPrev = effectiveLimitPrev - spentPrev;
+
+        // Current period with carry-over from previous remaining
+        effectiveLimitCur = base + remainingPrev;
+        remainingCur = effectiveLimitCur - spentCur;
+      } else {
+        // No carry-over: standard single-period behavior
+        effectiveLimitCur = base;
+        remainingCur = effectiveLimitCur - spentCur;
+      }
 
       items.push({
         budget,
-        limit,
-        spent,
-        remaining,
+        limit: effectiveLimitCur,
+        spent: spentCur,
+        remaining: remainingCur,
         windowStart: periodStartYmd,
         windowEnd: periodEndYmd,
       });
