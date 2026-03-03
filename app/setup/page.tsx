@@ -75,6 +75,22 @@ interface Budget {
   created_at: string;
 }
 
+type ScheduledFrequency = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'yearly';
+
+interface ScheduledExpenseRule {
+  id: string;
+  user_id: string;
+  name: string;
+  account_id: string;
+  category_id: string | null;
+  amount: number;
+  frequency: ScheduledFrequency;
+  start_date: string;
+  comment_template: string | null;
+  is_active: boolean;
+  created_at: string;
+}
+
 // Parse base_limit_eur: accepts "," and "." as decimal separator, rounds to 2 decimals
 function parseBaseLimitEur(input: string): { ok: true; value: number } | { ok: false; error: string } {
   if (!input || !input.trim()) return { ok: false, error: 'Enter amount.' };
@@ -254,6 +270,22 @@ export default function SetupPage() {
   const [budgetDeleteError, setBudgetDeleteError] = useState<string | null>(null);
   const [categoryToBudgetIdsMap, setCategoryToBudgetIdsMap] = useState<Map<string, string[]>>(new Map());
 
+  // Scheduled expenses
+  const [scheduledRules, setScheduledRules] = useState<ScheduledExpenseRule[]>([]);
+  const [scheduledRulesLoading, setScheduledRulesLoading] = useState(false);
+  const [scheduledRulesError, setScheduledRulesError] = useState<string | null>(null);
+  const [scheduledRuleFormError, setScheduledRuleFormError] = useState<string | null>(null);
+  const [scheduledRuleSubmitting, setScheduledRuleSubmitting] = useState(false);
+  const [editingScheduledRuleId, setEditingScheduledRuleId] = useState<string | null>(null);
+  const [scheduledRuleName, setScheduledRuleName] = useState('');
+  const [scheduledRuleAmount, setScheduledRuleAmount] = useState('');
+  const [scheduledRuleAccountId, setScheduledRuleAccountId] = useState<string>('');
+  const [scheduledRuleCategoryId, setScheduledRuleCategoryId] = useState<string>('');
+  const [scheduledRuleFrequency, setScheduledRuleFrequency] =
+    useState<ScheduledFrequency>('monthly');
+  const [scheduledRuleStartDate, setScheduledRuleStartDate] = useState('');
+  const [scheduledRuleCommentTemplate, setScheduledRuleCommentTemplate] = useState('');
+
   const debitAccounts = useMemo(
     () => accounts.filter((a) => a.kind === 'debit'),
     [accounts],
@@ -388,7 +420,7 @@ export default function SetupPage() {
       const accessToken = (session as { access_token?: string }).access_token;
       setSessionToken(accessToken || null);
       setSessionChecked(true);
-      await Promise.all([loadAccounts(), loadCategories(), loadBudgets()]);
+      await Promise.all([loadAccounts(), loadCategories(), loadBudgets(), loadScheduledRules()]);
     };
 
     init();
@@ -563,6 +595,196 @@ export default function SetupPage() {
       setBudgetsError(err instanceof Error ? err.message : 'Failed to load budgets');
     } finally {
       setBudgetsLoading(false);
+    }
+  };
+
+  const loadScheduledRules = async () => {
+    const session = await getSession();
+    if (!session?.user?.id) return;
+
+    setScheduledRulesLoading(true);
+    setScheduledRulesError(null);
+
+    try {
+      const { data, error } = await supabase
+        .from('scheduled_expenses')
+        .select(
+          'id, user_id, name, account_id, category_id, amount, frequency, start_date, comment_template, is_active, created_at',
+        )
+        .eq('user_id', session.user.id)
+        .order('created_at', { ascending: true });
+
+      if (error) {
+        setScheduledRulesError(error.message);
+        setScheduledRulesLoading(false);
+        return;
+      }
+
+      setScheduledRules((data || []) as ScheduledExpenseRule[]);
+    } catch (err) {
+      setScheduledRulesError(
+        err instanceof Error ? err.message : 'Failed to load scheduled expenses',
+      );
+    } finally {
+      setScheduledRulesLoading(false);
+    }
+  };
+
+  const resetScheduledRuleForm = () => {
+    setEditingScheduledRuleId(null);
+    setScheduledRuleName('');
+    setScheduledRuleAmount('');
+    setScheduledRuleAccountId('');
+    setScheduledRuleCategoryId('');
+    setScheduledRuleFrequency('monthly');
+    setScheduledRuleStartDate('');
+    setScheduledRuleCommentTemplate('');
+    setScheduledRuleFormError(null);
+  };
+
+  const handleEditScheduledRule = (rule: ScheduledExpenseRule) => {
+    setEditingScheduledRuleId(rule.id);
+    setScheduledRuleName(rule.name);
+    setScheduledRuleAmount(String(rule.amount));
+    setScheduledRuleAccountId(rule.account_id);
+    setScheduledRuleCategoryId(rule.category_id || '');
+    setScheduledRuleFrequency(rule.frequency);
+    setScheduledRuleStartDate(rule.start_date.slice(0, 10));
+    setScheduledRuleCommentTemplate(rule.comment_template || '');
+    setScheduledRuleFormError(null);
+  };
+
+  const handleDeleteScheduledRule = async (id: string) => {
+    if (!userId) return;
+
+    setScheduledRulesError(null);
+    try {
+      const { error } = await supabase
+        .from('scheduled_expenses')
+        .delete()
+        .eq('id', id)
+        .eq('user_id', userId);
+
+      if (error) {
+        setScheduledRulesError(error.message);
+        return;
+      }
+
+      await loadScheduledRules();
+      if (editingScheduledRuleId === id) {
+        resetScheduledRuleForm();
+      }
+    } catch (err) {
+      setScheduledRulesError(
+        err instanceof Error ? err.message : 'Failed to delete scheduled expense rule',
+      );
+    }
+  };
+
+  const handleToggleScheduledRuleActive = async (rule: ScheduledExpenseRule) => {
+    if (!userId) return;
+
+    setScheduledRulesError(null);
+    try {
+      const { error } = await supabase
+        .from('scheduled_expenses')
+        .update({ is_active: !rule.is_active })
+        .eq('id', rule.id)
+        .eq('user_id', userId);
+
+      if (error) {
+        setScheduledRulesError(error.message);
+        return;
+      }
+
+      await loadScheduledRules();
+    } catch (err) {
+      setScheduledRulesError(
+        err instanceof Error ? err.message : 'Failed to update scheduled expense rule',
+      );
+    }
+  };
+
+  const handleSubmitScheduledRule = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!userId) return;
+
+    setScheduledRuleFormError(null);
+
+    const name = scheduledRuleName.trim();
+    if (!name) {
+      setScheduledRuleFormError('Name is required.');
+      return;
+    }
+
+    if (!scheduledRuleAccountId) {
+      setScheduledRuleFormError('Select account.');
+      return;
+    }
+
+    const amountNum = Number(scheduledRuleAmount);
+    if (!Number.isFinite(amountNum) || amountNum < 0) {
+      setScheduledRuleFormError('Amount must be a number greater or equal to 0.');
+      return;
+    }
+
+    if (!scheduledRuleStartDate) {
+      setScheduledRuleFormError('Start date is required.');
+      return;
+    }
+
+    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    const tomorrowYmd = tomorrow.toISOString().slice(0, 10);
+
+    if (scheduledRuleStartDate < tomorrowYmd) {
+      setScheduledRuleFormError(`Start date must be on or after ${tomorrowYmd}.`);
+      return;
+    }
+
+    setScheduledRuleSubmitting(true);
+
+    try {
+      const payload = {
+        user_id: userId,
+        name,
+        account_id: scheduledRuleAccountId,
+        category_id: scheduledRuleCategoryId || null,
+        amount: amountNum,
+        frequency: scheduledRuleFrequency,
+        start_date: scheduledRuleStartDate,
+        comment_template: scheduledRuleCommentTemplate.trim() || null,
+      };
+
+      if (editingScheduledRuleId) {
+        const { error } = await supabase
+          .from('scheduled_expenses')
+          .update(payload)
+          .eq('id', editingScheduledRuleId)
+          .eq('user_id', userId);
+
+        if (error) {
+          setScheduledRuleFormError(error.message);
+          setScheduledRuleSubmitting(false);
+          return;
+        }
+      } else {
+        const { error } = await supabase.from('scheduled_expenses').insert(payload);
+
+        if (error) {
+          setScheduledRuleFormError(error.message);
+          setScheduledRuleSubmitting(false);
+          return;
+        }
+      }
+
+      await loadScheduledRules();
+      resetScheduledRuleForm();
+    } catch (err) {
+      setScheduledRuleFormError(
+        err instanceof Error ? err.message : 'Failed to save scheduled expense rule',
+      );
+    } finally {
+      setScheduledRuleSubmitting(false);
     }
   };
 
@@ -3472,6 +3694,269 @@ export default function SetupPage() {
             >
               {budgetSubmitting ? 'Creating...' : 'Create budget'}
             </button>
+          </form>
+        </section>
+
+        {/* Scheduled expenses block */}
+        <section className="flex flex-col gap-4 rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm md:p-6">
+          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <h2 className="text-lg font-semibold text-neutral-900">Scheduled expenses</h2>
+            {scheduledRulesLoading && (
+              <span className="text-xs text-neutral-500">Loading...</span>
+            )}
+          </div>
+
+          {scheduledRulesError && (
+            <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+              {scheduledRulesError}
+            </div>
+          )}
+
+          <div className="space-y-3">
+            {scheduledRules.length === 0 ? (
+              <p className="text-sm text-neutral-600">
+                No scheduled expenses yet. Create your first rule below.
+              </p>
+            ) : (
+              scheduledRules.map((rule) => {
+                const account = accounts.find((a) => a.id === rule.account_id);
+                const category = rule.category_id
+                  ? categories.find((c) => c.id === rule.category_id)
+                  : null;
+
+                return (
+                  <div
+                    key={rule.id}
+                    className="flex flex-col gap-3 rounded-lg border border-neutral-200 bg-neutral-50 p-4 md:flex-row md:items-start md:justify-between"
+                  >
+                    <div className="space-y-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="text-sm font-semibold text-neutral-900">
+                          {rule.name}
+                        </h3>
+                        <span
+                          className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
+                            rule.is_active
+                              ? 'bg-emerald-50 text-emerald-700'
+                              : 'bg-neutral-100 text-neutral-600'
+                          }`}
+                        >
+                          {rule.is_active ? 'Active' : 'Inactive'}
+                        </span>
+                      </div>
+                      <p className="text-xs text-neutral-600">
+                        {account ? account.name : 'Unknown account'} ·{' '}
+                        {category ? category.name : '—'} · {rule.amount.toFixed(2)} ·{' '}
+                        {rule.frequency} · from {rule.start_date.slice(0, 10)}
+                      </p>
+                      {rule.comment_template && (
+                        <p className="text-xs text-neutral-500">
+                          Template: {rule.comment_template}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleEditScheduledRule(rule)}
+                        className="rounded-lg border border-neutral-300 px-3 py-1.5 text-sm font-medium text-neutral-800 transition hover:bg-neutral-100"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleToggleScheduledRuleActive(rule)}
+                        className="rounded-lg border border-neutral-300 px-3 py-1.5 text-sm font-medium text-neutral-800 transition hover:bg-neutral-100"
+                      >
+                        {rule.is_active ? 'Deactivate' : 'Activate'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteScheduledRule(rule.id)}
+                        className="rounded-lg border border-red-300 px-3 py-1.5 text-sm font-medium text-red-700 transition hover:bg-red-50"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          <form
+            onSubmit={handleSubmitScheduledRule}
+            className="mt-4 space-y-4 rounded-lg border border-neutral-200 p-4"
+          >
+            <h3 className="text-sm font-semibold text-neutral-900">
+              {editingScheduledRuleId ? 'Edit scheduled expense rule' : 'Create scheduled expense rule'}
+            </h3>
+
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="space-y-1">
+                <label
+                  className="block text-xs font-medium text-neutral-700"
+                  htmlFor="scheduled-name"
+                >
+                  Name
+                </label>
+                <input
+                  id="scheduled-name"
+                  type="text"
+                  value={scheduledRuleName}
+                  onChange={(e) => setScheduledRuleName(e.target.value)}
+                  className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label
+                  className="block text-xs font-medium text-neutral-700"
+                  htmlFor="scheduled-amount"
+                >
+                  Amount
+                </label>
+                <input
+                  id="scheduled-amount"
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={scheduledRuleAmount}
+                  onChange={(e) => setScheduledRuleAmount(e.target.value)}
+                  className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label
+                  className="block text-xs font-medium text-neutral-700"
+                  htmlFor="scheduled-account"
+                >
+                  Account
+                </label>
+                <select
+                  id="scheduled-account"
+                  value={scheduledRuleAccountId}
+                  onChange={(e) => setScheduledRuleAccountId(e.target.value)}
+                  className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                >
+                  <option value="">Select account</option>
+                  {accounts.map((acc) => (
+                    <option key={acc.id} value={acc.id}>
+                      {acc.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label
+                  className="block text-xs font-medium text-neutral-700"
+                  htmlFor="scheduled-category"
+                >
+                  Category (optional)
+                </label>
+                <select
+                  id="scheduled-category"
+                  value={scheduledRuleCategoryId}
+                  onChange={(e) => setScheduledRuleCategoryId(e.target.value)}
+                  className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                >
+                  <option value="">—</option>
+                  {expenseCategories.map((cat) => (
+                    <option key={cat.id} value={cat.id}>
+                      {cat.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label
+                  className="block text-xs font-medium text-neutral-700"
+                  htmlFor="scheduled-frequency"
+                >
+                  Frequency
+                </label>
+                <select
+                  id="scheduled-frequency"
+                  value={scheduledRuleFrequency}
+                  onChange={(e) =>
+                    setScheduledRuleFrequency(e.target.value as ScheduledFrequency)
+                  }
+                  className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                >
+                  <option value="daily">Daily</option>
+                  <option value="weekly">Weekly</option>
+                  <option value="monthly">Monthly</option>
+                  <option value="quarterly">Quarterly</option>
+                  <option value="yearly">Yearly</option>
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label
+                  className="block text-xs font-medium text-neutral-700"
+                  htmlFor="scheduled-start-date"
+                >
+                  Start date
+                </label>
+                <input
+                  id="scheduled-start-date"
+                  type="date"
+                  value={scheduledRuleStartDate}
+                  onChange={(e) => setScheduledRuleStartDate(e.target.value)}
+                  className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <label
+                className="block text-xs font-medium text-neutral-700"
+                htmlFor="scheduled-comment-template"
+              >
+                Comment template (optional)
+              </label>
+              <input
+                id="scheduled-comment-template"
+                type="text"
+                value={scheduledRuleCommentTemplate}
+                onChange={(e) => setScheduledRuleCommentTemplate(e.target.value)}
+                className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+              />
+            </div>
+
+            {scheduledRuleFormError && (
+              <div className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">
+                {scheduledRuleFormError}
+              </div>
+            )}
+
+            <div className="flex gap-2">
+              <button
+                type="submit"
+                disabled={scheduledRuleSubmitting}
+                className="rounded-lg bg-neutral-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:bg-neutral-400"
+              >
+                {scheduledRuleSubmitting
+                  ? editingScheduledRuleId
+                    ? 'Saving...'
+                    : 'Creating...'
+                  : editingScheduledRuleId
+                  ? 'Save'
+                  : 'Create'}
+              </button>
+              {editingScheduledRuleId && (
+                <button
+                  type="button"
+                  onClick={resetScheduledRuleForm}
+                  className="rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-800 transition hover:bg-neutral-100"
+                >
+                  Cancel
+                </button>
+              )}
+            </div>
           </form>
         </section>
 
