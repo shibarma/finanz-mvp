@@ -22,6 +22,8 @@ import {
   Tooltip,
   Legend,
   ResponsiveContainer,
+  ComposedChart,
+  Cell,
 } from 'recharts';
 
 // Schema: accounts.kind includes 'broker' and 'crypto'; accounts.currency added (was missing in older backups)
@@ -244,6 +246,7 @@ export default function StatsPage() {
   const [budgetsLoading, setBudgetsLoading] = useState(false);
   const [budgetsError, setBudgetsError] = useState<string | null>(null);
   const [earliestBudgetPeriodStartYmd, setEarliestBudgetPeriodStartYmd] = useState<string | null>(null);
+  const [earliestBudgetHistoryStartYmd, setEarliestBudgetHistoryStartYmd] = useState<string | null>(null);
 
   useEffect(() => {
     const init = async () => {
@@ -382,6 +385,7 @@ export default function StatsPage() {
       if (budgetList.length === 0) {
         setBudgetCategoriesMap(new Map());
         setEarliestBudgetPeriodStartYmd(null);
+        setEarliestBudgetHistoryStartYmd(null);
         setBudgetsLoading(false);
         return;
       }
@@ -412,6 +416,7 @@ export default function StatsPage() {
       // Compute earliest budget period start (for current and previous periods across all budgets)
       const anchorYmd = new Date().toISOString().slice(0, 10);
       let earliestStart: string | null = null;
+      let earliestHistoryStart: string | null = null;
       for (const b of budgetList) {
         const budgetStartYmd = b.start_date.slice(0, 10);
         const { startYmd: currentStartYmd } = getBudgetPeriodForAnchor(budgetStartYmd, anchorYmd);
@@ -428,8 +433,15 @@ export default function StatsPage() {
         if (!earliestStart || prevStartYmd < earliestStart) {
           earliestStart = prevStartYmd;
         }
+        
+        // For budget history charts: we want to be able to build carry chains
+        // starting from the creation of each budget.
+        if (!earliestHistoryStart || budgetStartYmd < earliestHistoryStart) {
+          earliestHistoryStart = budgetStartYmd;
+        }
       }
       setEarliestBudgetPeriodStartYmd(earliestStart);
+      setEarliestBudgetHistoryStartYmd(earliestHistoryStart);
     } catch (err) {
       setBudgetsError(err instanceof Error ? err.message : 'Failed to load budgets');
     } finally {
@@ -449,6 +461,12 @@ export default function StatsPage() {
       const budgetStartDate = parseYmd(earliestBudgetPeriodStartYmd);
       if (budgetStartDate < finalExtendedFrom) {
         finalExtendedFrom = budgetStartDate;
+      }
+    }
+    if (earliestBudgetHistoryStartYmd) {
+      const historyStartDate = parseYmd(earliestBudgetHistoryStartYmd);
+      if (historyStartDate < finalExtendedFrom) {
+        finalExtendedFrom = historyStartDate;
       }
     }
 
@@ -1102,6 +1120,166 @@ export default function StatsPage() {
     accounts,
     fxRows,
   ]);
+
+  // Budget history for charts: last 12 periods per budget (anchored to today)
+  const budgetHistory = useMemo(() => {
+    if (budgets.length === 0 || accounts.length === 0) {
+      return [] as Array<{
+        budget: Budget;
+        periods: Array<{
+          startYmd: string;
+          endYmd: string;
+          label: string;
+          spent: number;
+          limit: number;
+          remaining: number;
+        }>;
+      }>;
+    }
+
+    const anchorYmd = new Date().toISOString().slice(0, 10);
+
+    const fxSorted = [...fxRows].sort((a, b) => a.captured_date.localeCompare(b.captured_date));
+    const latestFxOverall = fxSorted.length > 0 ? fxSorted[fxSorted.length - 1].rate : null;
+    const getFxRate = (d: string): number | null => {
+      const candidates = fxSorted.filter((f) => f.captured_date <= d);
+      if (candidates.length > 0) return candidates[candidates.length - 1].rate;
+      return latestFxOverall;
+    };
+
+    const accountsById = new Map<string, Account>();
+    accounts.forEach((a) => accountsById.set(a.id, a));
+
+    const historyItems: Array<{
+      budget: Budget;
+      periods: Array<{
+        startYmd: string;
+        endYmd: string;
+        label: string;
+        spent: number;
+        limit: number;
+        remaining: number;
+      }>;
+    }> = [];
+
+    for (const budget of budgets) {
+      const catIds = budgetCategoriesMap.get(budget.id) || [];
+      if (catIds.length === 0) continue;
+
+      const budgetCatSet = new Set(catIds);
+
+      // Current period for this budget
+      const budgetStartYmd = budget.start_date.slice(0, 10);
+      const { startYmd: currentStartYmd } = getBudgetPeriodForAnchor(budgetStartYmd, anchorYmd);
+      const currentStartDate = parseYmd(currentStartYmd);
+
+      // Build all consecutive periods from budget creation to current period
+      const periods: Array<{
+        startYmd: string;
+        endYmd: string;
+        label: string;
+        spent: number;
+        limit: number;
+        remaining: number;
+      }> = [];
+
+      let startDate = parseYmd(budgetStartYmd);
+      while (startDate <= currentStartDate) {
+        const nextStartDate = addMonthsClamped(startDate, 1);
+        const endDate = new Date(nextStartDate);
+        endDate.setDate(endDate.getDate() - 1);
+
+        const startYmd = formatYmd(startDate);
+        const endYmd = formatYmd(endDate);
+
+        // Simple label: YYYY-MM
+        const label = startYmd.slice(0, 7);
+
+        periods.push({
+          startYmd,
+          endYmd,
+          label,
+          spent: 0,
+          limit: 0,
+          remaining: 0,
+        });
+
+        startDate = nextStartDate;
+      }
+
+      const oldestStartYmd = periods[0].startYmd;
+      const latestEndYmd = periods[periods.length - 1].endYmd;
+
+      // Aggregate spent per period
+      transactions.forEach((tx) => {
+        if (tx.kind !== 'expense' || tx.is_investment || !tx.category_id) return;
+        if (!budgetCatSet.has(tx.category_id)) return;
+
+        const txYmd = tx.created_at.slice(0, 10);
+        if (txYmd < oldestStartYmd || txYmd > latestEndYmd) return;
+
+        const account = accountsById.get(tx.account_id);
+        const currency = (account?.currency || 'EUR').toUpperCase();
+
+        let amountEur: number | null = null;
+        if (currency === 'EUR') {
+          amountEur = tx.amount;
+        } else if (currency === 'USD') {
+          const rate = getFxRate(txYmd);
+          if (rate === null) {
+            // We reuse the global fxSkippedWarning flag from budgetAnalytics for user messaging;
+            // here we just skip this transaction for charts if FX is missing.
+            amountEur = null;
+          } else {
+            amountEur = tx.amount * rate;
+          }
+        }
+
+        if (amountEur === null) return;
+
+        // Find the period this transaction belongs to
+        for (let i = 0; i < periods.length; i++) {
+          const p = periods[i];
+          if (txYmd >= p.startYmd && txYmd <= p.endYmd) {
+            p.spent += amountEur;
+            break;
+          }
+        }
+      });
+
+      const base = budget.base_limit_eur;
+
+      if (!budget.carry_over) {
+        // carry_over = false -> flat base limit, remaining = base - spent
+        for (let i = 0; i < periods.length; i++) {
+          const p = periods[i];
+          p.limit = base;
+          p.remaining = base - p.spent;
+        }
+      } else {
+        // carry_over = true -> carry chain across all periods since budget creation
+        for (let i = 0; i < periods.length; i++) {
+          if (i === 0) {
+            periods[i].limit = base;
+          } else {
+            periods[i].remaining = periods[i - 1].limit - periods[i - 1].spent;
+            periods[i].limit = base + periods[i - 1].remaining;
+          }
+          // remaining for this period based on its own limit & spent
+          periods[i].remaining = periods[i].limit - periods[i].spent;
+        }
+      }
+
+      // For charts we only need the last 12 periods, but limits/remaining were
+      // computed across the full history above.
+      const visiblePeriods =
+        periods.length > 12 ? periods.slice(periods.length - 12) : periods;
+
+      historyItems.push({ budget, periods: visiblePeriods });
+    }
+
+    return historyItems;
+  }, [budgets, budgetCategoriesMap, transactions, accounts, fxRows]);
 
   const getInstrumentKind = (pos: PositionRow): string | null => {
     const inst = pos.instruments;
@@ -1959,6 +2137,67 @@ export default function StatsPage() {
 
           {!budgetsLoading && !budgetsError && budgetAnalytics.items.length === 0 && budgets.length > 0 && (
             <p className="text-sm text-neutral-600">Budgets have no categories or period does not overlap.</p>
+          )}
+          {/* Budget history charts (last 12 periods per budget) */}
+          {!budgetsLoading && !budgetsError && budgetHistory.length > 0 && (
+            <div className="mt-6 space-y-4">
+              <h3 className="text-sm font-semibold text-neutral-900">Budget history v2 (last 12 periods)</h3>
+              {budgetHistory.map((item) => {
+                const chartData = item.periods.map((p) => ({
+                  label: p.label,
+                  spent: Number.isFinite(p.spent) ? p.spent : 0,
+                  limit: Number.isFinite(p.limit) ? p.limit : 0,
+                }));
+
+                return (
+                  <div
+                    key={item.budget.id}
+                    className="rounded-lg border border-neutral-200 bg-neutral-50 p-4"
+                  >
+                    <h4 className="mb-2 text-sm font-semibold text-neutral-900">
+                      {item.budget.name}
+                    </h4>
+                    <ResponsiveContainer width="100%" height={220}>
+                      <ComposedChart
+                        data={chartData}
+                        margin={{ top: 10, right: 20, bottom: 30, left: 0 }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="label" />
+                        <YAxis
+                          tickFormatter={(value) => formatMoney(value)}
+                          width={80}
+                        />
+                        <Tooltip
+                          formatter={(value: number, name: string) =>
+                            formatMoney(value)
+                          }
+                          labelStyle={{ color: '#171717' }}
+                        />
+                        <Legend />
+                        <Bar dataKey="spent" name="Spent">
+                          {chartData.map((d, index) => (
+                            <Cell
+                              key={`cell-${item.budget.id}-${index}`}
+                              fill={d.spent > d.limit ? '#ef4444' : '#16a34a'}
+                            />
+                          ))}
+                        </Bar>
+                        <Line
+                          type="stepAfter"
+                          dataKey="limit"
+                          stroke="#171717"
+                          strokeDasharray="4 4"
+                          strokeWidth={2}
+                          dot={{ r: 2 }}
+                          name="Limit"
+                        />
+                      </ComposedChart>
+                    </ResponsiveContainer>
+                  </div>
+                );
+              })}
+            </div>
           )}
         </section>
 
