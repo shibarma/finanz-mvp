@@ -14,15 +14,53 @@ export default function AuthCallbackPage() {
     const code = searchParams.get('code');
     const next = searchParams.get('next') || '/update-password';
 
-    if (!code) {
-      setStatus('error');
-      setErrorMessage('Recovery code not found. Please request a new email.');
-      return;
-    }
+    const establishSession = async () => {
+      // Preferred PKCE flow: ?code=... from Supabase
+      if (code) {
+        setStatus('loading');
+        const { error } = await supabase.auth.exchangeCodeForSession(code);
 
-    const exchange = async () => {
+        if (error) {
+          setStatus('error');
+          setErrorMessage(error.message || 'Failed to establish session.');
+          return;
+        }
+
+        router.replace(next);
+        return;
+      }
+
+      // Fallback for implicit/hash-based flows: #access_token=...&refresh_token=...
+      if (typeof window === 'undefined') {
+        setStatus('error');
+        setErrorMessage('Recovery code not found. Please request a new email.');
+        return;
+      }
+
+      const rawHash = window.location.hash || '';
+      const hash = rawHash.startsWith('#') ? rawHash.slice(1) : rawHash;
+
+      if (!hash) {
+        setStatus('error');
+        setErrorMessage('Recovery code not found. Please request a new email.');
+        return;
+      }
+
+      const hashParams = new URLSearchParams(hash);
+      const accessToken = hashParams.get('access_token');
+      const refreshToken = hashParams.get('refresh_token');
+
+      if (!accessToken || !refreshToken) {
+        setStatus('error');
+        setErrorMessage('Recovery code not found. Please request a new email.');
+        return;
+      }
+
       setStatus('loading');
-      const { error } = await supabase.auth.exchangeCodeForSession(code);
+      const { error } = await supabase.auth.setSession({
+        access_token: accessToken,
+        refresh_token: refreshToken,
+      });
 
       if (error) {
         setStatus('error');
@@ -30,10 +68,13 @@ export default function AuthCallbackPage() {
         return;
       }
 
+      // Remove tokens from the address bar while keeping path + query
+      window.history.replaceState(null, '', window.location.pathname + window.location.search);
+
       router.replace(next);
     };
 
-    exchange();
+    establishSession();
   }, [router, searchParams]);
 
   if (status === 'loading') {
