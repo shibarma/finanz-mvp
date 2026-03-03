@@ -2101,17 +2101,31 @@ export default function StatsPage() {
 
               {budgetAnalytics.items.map((item) => {
                 const pct = item.limit > 0 ? Math.min(100, (item.spent / item.limit) * 100) : 0;
+                const baseLimitLabel = `Base limit: ${formatMoney(item.budget.base_limit_eur)}`;
+                const effectiveLimitLabel = `Effective limit: ${formatMoney(item.limit)}`;
+
                 return (
                   <div key={item.budget.id} className="rounded-lg border border-neutral-200 p-4">
                     <div className="mb-2 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                      <h3 className="font-semibold text-neutral-900">{item.budget.name}</h3>
-                      <span className="text-xs text-neutral-500">
-                        Budget window: {item.windowStart} – {item.windowEnd}
-                      </span>
+                      <div className="flex flex-col">
+                        <h3 className="font-semibold text-neutral-900">{item.budget.name}</h3>
+                        <span className="text-xs text-neutral-500">
+                          Budget window: {item.windowStart} – {item.windowEnd}
+                        </span>
+                        {item.budget.carry_over && (
+                          <span className="mt-0.5 text-xs text-neutral-500">
+                            {baseLimitLabel} · {effectiveLimitLabel}
+                          </span>
+                        )}
+                      </div>
                     </div>
                     <div className="mb-2 flex justify-between text-sm">
-                      <span className="text-neutral-600">Limit: {formatMoney(item.limit)}</span>
-                      <span className="text-neutral-600">Spent: {formatMoney(item.spent)}</span>
+                      <span className="text-neutral-600">
+                        Limit: {formatMoney(item.limit)}
+                      </span>
+                      <span className="text-neutral-600">
+                        Spent: {formatMoney(item.spent)}
+                      </span>
                       <span
                         className={item.remaining >= 0 ? 'text-emerald-700' : 'text-red-700'}
                       >
