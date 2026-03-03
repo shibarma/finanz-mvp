@@ -2230,6 +2230,89 @@ export default function FinanceAppPage() {
               hasBroker || hasCrypto ? 'grid gap-6 md:grid-cols-4' : 'grid gap-6 md:grid-cols-3'
             }
           >
+            {/* Expense */}
+            <div className="space-y-3 rounded-lg border border-neutral-200 p-4">
+              <h3 className="text-sm font-semibold text-neutral-900">Expense</h3>
+              <div className="space-y-2">
+                <div>
+                  <label className="block text-xs font-medium text-neutral-700">Amount</label>
+                  <input
+                    type="text"
+                    value={amountExpense}
+                    onChange={(e) => setAmountExpense(e.target.value)}
+                    className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                    placeholder="0.00"
+                  />
+                  <p className="mt-1 text-xs text-neutral-500">
+                    You can enter expressions: 5+6-2, supports + - * / ( )
+                  </p>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-neutral-700">Date &amp; time</label>
+                  <input
+                    type="datetime-local"
+                    value={expenseDateTime}
+                    onChange={(e) => setExpenseDateTime(e.target.value)}
+                    className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-neutral-700">From</label>
+                    <select
+                      value={accountExpense}
+                      onChange={(e) => {
+                        setAccountExpense(e.target.value);
+                        setAccountExpenseManuallySet(true);
+                      }}
+                      className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                    >
+                      <option value="">Select account</option>
+                      {accounts.map((acc) => (
+                        <option key={acc.id} value={acc.id}>
+                          {acc.name} ({acc.kind}) {getCurrencySymbol(acc.currency)}
+                        </option>
+                      ))}
+                    </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-neutral-700">
+                    Category (optional)
+                  </label>
+                  <select
+                    value={categoryExpense}
+                    onChange={(e) => setCategoryExpense(e.target.value)}
+                    className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                  >
+                    <option value="">No category</option>
+                    {expenseCategories.map((cat) => (
+                      <option key={cat.id} value={cat.id}>
+                        {cat.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-neutral-700">
+                    Comment (optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={commentExpense}
+                    onChange={(e) => setCommentExpense(e.target.value)}
+                    className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
+                    placeholder="Comment"
+                  />
+                </div>
+                <button
+                  onClick={handleExpense}
+                  disabled={submittingExpense}
+                  className="w-full rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-neutral-400"
+                >
+                  {submittingExpense ? 'Saving...' : 'Add Expense'}
+                </button>
+              </div>
+            </div>
+
             {/* Income */}
             <div className="space-y-3 rounded-lg border border-neutral-200 p-4">
               <h3 className="text-sm font-semibold text-neutral-900">Income</h3>
@@ -2309,89 +2392,6 @@ export default function FinanceAppPage() {
                   className="w-full rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-neutral-400"
                 >
                   {submittingIncome ? 'Saving...' : 'Add Income'}
-                </button>
-              </div>
-            </div>
-
-            {/* Expense */}
-              <div className="space-y-3 rounded-lg border border-neutral-200 p-4">
-              <h3 className="text-sm font-semibold text-neutral-900">Expense</h3>
-              <div className="space-y-2">
-                <div>
-                  <label className="block text-xs font-medium text-neutral-700">Amount</label>
-                  <input
-                    type="text"
-                    value={amountExpense}
-                    onChange={(e) => setAmountExpense(e.target.value)}
-                    className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
-                    placeholder="0.00"
-                  />
-                  <p className="mt-1 text-xs text-neutral-500">
-                    You can enter expressions: 5+6-2, supports + - * / ( )
-                  </p>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-neutral-700">Date &amp; time</label>
-                  <input
-                    type="datetime-local"
-                    value={expenseDateTime}
-                    onChange={(e) => setExpenseDateTime(e.target.value)}
-                    className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-neutral-700">From</label>
-                    <select
-                      value={accountExpense}
-                      onChange={(e) => {
-                        setAccountExpense(e.target.value);
-                        setAccountExpenseManuallySet(true);
-                      }}
-                      className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
-                    >
-                      <option value="">Select account</option>
-                      {accounts.map((acc) => (
-                        <option key={acc.id} value={acc.id}>
-                          {acc.name} ({acc.kind}) {getCurrencySymbol(acc.currency)}
-                        </option>
-                      ))}
-                    </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-neutral-700">
-                    Category (optional)
-                  </label>
-                  <select
-                    value={categoryExpense}
-                    onChange={(e) => setCategoryExpense(e.target.value)}
-                    className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
-                  >
-                    <option value="">No category</option>
-                    {expenseCategories.map((cat) => (
-                      <option key={cat.id} value={cat.id}>
-                        {cat.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-neutral-700">
-                    Comment (optional)
-                  </label>
-                  <input
-                    type="text"
-                    value={commentExpense}
-                    onChange={(e) => setCommentExpense(e.target.value)}
-                    className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200"
-                    placeholder="Comment"
-                  />
-                </div>
-                <button
-                  onClick={handleExpense}
-                  disabled={submittingExpense}
-                  className="w-full rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-neutral-400"
-                >
-                  {submittingExpense ? 'Saving...' : 'Add Expense'}
                 </button>
               </div>
             </div>
