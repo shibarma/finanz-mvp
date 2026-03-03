@@ -74,8 +74,9 @@ export default function ScheduledExpensesPage() {
       }
 
       setUserId(session.user.id);
-      const accessToken = (session as { access_token?: string }).access_token;
-      setSessionToken(accessToken || null);
+      const accessToken =
+        ((session as { access_token?: string }).access_token as string | undefined) || null;
+      setSessionToken(accessToken);
       setSessionChecked(true);
 
       setLoading(true);
@@ -126,6 +127,7 @@ export default function ScheduledExpensesPage() {
 
   const loadDueRuns = async (accessToken: string | null) => {
     if (!accessToken) {
+      setError('Not authenticated');
       setRuns([]);
       setSelectedIds(new Set());
       return;
