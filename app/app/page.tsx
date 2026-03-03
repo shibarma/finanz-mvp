@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { getSession, supabase } from '../../lib/supabaseClient';
 import { parseMoneyExpression } from '../../lib/parseMoneyExpression';
@@ -282,6 +282,8 @@ export default function FinanceAppPage() {
   const [investComment, setInvestComment] = useState('');
   const [submittingInvest, setSubmittingInvest] = useState(false);
   const [investMode, setInvestMode] = useState<'Stocks' | 'Crypto'>('Stocks');
+
+  const scheduledEnsureCalledRef = useRef(false);
 
   const accountsById = useMemo(() => {
     const map = new Map<string, Account>();
@@ -613,6 +615,32 @@ export default function FinanceAppPage() {
         loadPositions(session.user.id),
         loadInvestmentTrades(session.user.id),
       ]);
+
+      if (!scheduledEnsureCalledRef.current && accessToken) {
+        scheduledEnsureCalledRef.current = true;
+        try {
+          const response = await fetch('/api/scheduled-expenses/ensure', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${accessToken}`,
+            },
+          });
+
+          let data: any = null;
+          try {
+            data = await response.json();
+          } catch {
+            // ignore JSON parse errors, just don't redirect
+          }
+
+          if (response.ok && data?.ok && typeof data.due_count === 'number' && data.due_count > 0) {
+            router.replace('/scheduled');
+          }
+        } catch (error) {
+          console.error('Failed to ensure scheduled expenses:', error);
+        }
+      }
     };
 
     init();
