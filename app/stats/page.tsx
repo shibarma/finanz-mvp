@@ -2161,6 +2161,8 @@ export default function StatsPage() {
                   label: p.label,
                   spent: Number.isFinite(p.spent) ? p.spent : 0,
                   limit: Number.isFinite(p.limit) ? p.limit : 0,
+                  startYmd: p.startYmd,
+                  endYmd: p.endYmd,
                 }));
 
                 return (
@@ -2186,6 +2188,12 @@ export default function StatsPage() {
                           formatter={(value: number, name: string) =>
                             formatMoney(value)
                           }
+                          labelFormatter={(label, payload) => {
+                            const first = Array.isArray(payload) && payload.length > 0 ? payload[0] : null;
+                            const start = first && (first as any).payload?.startYmd;
+                            const end = first && (first as any).payload?.endYmd;
+                            return start && end ? `${start} – ${end}` : label;
+                          }}
                           labelStyle={{ color: '#171717' }}
                         />
                         <Legend />
