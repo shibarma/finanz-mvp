@@ -33,6 +33,27 @@ interface ScheduledExpenseDueResponse {
   error?: string;
 }
 
+interface ApplyApiErrorItem {
+  run_id: string;
+  message: string;
+}
+
+interface ApplyApiResponse {
+  ok: boolean;
+  applied?: number;
+  failed?: number;
+  rejected?: number;
+  errors?: ApplyApiErrorItem[];
+  error?: string;
+}
+
+interface RejectApiResponse {
+  ok: boolean;
+  rejected?: number;
+  errors?: string[];
+  error?: string;
+}
+
 // Helper для форматирования денег по валюте
 const formatMoney = (amount: number, currency: AccountCurrency = 'EUR'): string => {
   return new Intl.NumberFormat('de-DE', {
@@ -57,6 +78,7 @@ export default function ScheduledExpensesPage() {
   const [loading, setLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [applySummary, setApplySummary] = useState<string | null>(null);
 
   const accountsById = useMemo(() => {
     const map = new Map<string, Account>();
@@ -127,7 +149,6 @@ export default function ScheduledExpensesPage() {
 
   const loadDueRuns = async (accessToken: string | null) => {
     if (!accessToken) {
-      setError('Not authenticated');
       setRuns([]);
       setSelectedIds(new Set());
       return;
@@ -153,7 +174,7 @@ export default function ScheduledExpensesPage() {
 
       const safeRuns = Array.isArray(data.runs) ? data.runs : [];
       setRuns(safeRuns);
-      setSelectedIds(new Set());
+      setSelectedIds(new Set(safeRuns.map((r) => r.id)));
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load scheduled expenses.');
       setRuns([]);
@@ -183,28 +204,97 @@ export default function ScheduledExpensesPage() {
     }
   };
 
-  const applyOrRejectSelected = async (newStatus: 'applied' | 'rejected') => {
-    if (!userId || selectedIds.size === 0) return;
+  const applyOrRejectSelected = async () => {
+    if (!userId || !sessionToken || runs.length === 0) return;
 
     setActionLoading(true);
     setError(null);
+    setApplySummary(null);
 
     try {
-      const ids = Array.from(selectedIds);
+      const allIds = runs.map((r) => r.id);
+      const selectedIdsArray = Array.from(selectedIds);
+      const rejectedIds = allIds.filter((id) => !selectedIds.has(id));
 
-      const { error: updateError } = await supabase
-        .from('scheduled_expense_runs')
-        .update({ status: newStatus })
-        .in('id', ids)
-        .eq('user_id', userId);
+      let totalApplied = 0;
+      let totalFailed = 0;
+      let totalRejected = 0;
+      const errorMessages: string[] = [];
 
-      if (updateError) {
-        throw new Error(updateError.message);
+      // Apply selected runs
+      if (selectedIdsArray.length > 0) {
+        try {
+          const response = await fetch('/api/scheduled-expenses/apply', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${sessionToken}`,
+            },
+            body: JSON.stringify({ run_ids: selectedIdsArray }),
+          });
+
+          const data: ApplyApiResponse = await response
+            .json()
+            .catch(() => ({ ok: false, error: 'Invalid server response' }));
+
+          if (!response.ok || !data.ok) {
+            throw new Error(data.error || 'Failed to apply scheduled expenses.');
+          }
+
+          totalApplied += typeof data.applied === 'number' ? data.applied : 0;
+          totalFailed += typeof data.failed === 'number' ? data.failed : 0;
+          totalRejected += typeof data.rejected === 'number' ? data.rejected : 0;
+        } catch (e) {
+          errorMessages.push(
+            e instanceof Error ? e.message : 'Failed to apply selected scheduled expenses.',
+          );
+        }
       }
 
+      // Reject unselected runs
+      if (rejectedIds.length > 0) {
+        try {
+          const response = await fetch('/api/scheduled-expenses/reject', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${sessionToken}`,
+            },
+            body: JSON.stringify({ run_ids: rejectedIds }),
+          });
+
+          const data: RejectApiResponse = await response
+            .json()
+            .catch(() => ({ ok: false, error: 'Invalid server response' }));
+
+          if (!response.ok || !data.ok) {
+            throw new Error(data.error || 'Failed to reject scheduled expenses.');
+          }
+
+          totalRejected += typeof data.rejected === 'number' ? data.rejected : 0;
+        } catch (e) {
+          errorMessages.push(
+            e instanceof Error ? e.message : 'Failed to reject scheduled expenses.',
+          );
+        }
+      }
+
+      if (errorMessages.length > 0) {
+        setError(errorMessages.join(' '));
+      }
+
+      setApplySummary(
+        `Applied: ${totalApplied}, failed: ${totalFailed}, rejected: ${totalRejected}.`,
+      );
+
       await loadDueRuns(sessionToken);
+
+      // If there were no blocking errors, redirect back to main app
+      if (errorMessages.length === 0) {
+        router.replace('/app');
+      }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to update scheduled expenses.');
+      setError(e instanceof Error ? e.message : 'Failed to process scheduled expenses.');
     } finally {
       setActionLoading(false);
     }
@@ -226,6 +316,12 @@ export default function ScheduledExpensesPage() {
         {error && (
           <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
             {error}
+          </div>
+        )}
+
+        {applySummary && (
+          <div className="mb-4 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+            {applySummary}
           </div>
         )}
 
@@ -315,17 +411,16 @@ export default function ScheduledExpensesPage() {
                 type="button"
                 className="inline-flex items-center justify-center rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-blue-700 disabled:opacity-60"
                 disabled={actionLoading || selectedIds.size === 0}
-                onClick={() => applyOrRejectSelected('applied')}
+                onClick={applyOrRejectSelected}
               >
                 {actionLoading ? 'Applying...' : 'Apply selected'}
               </button>
               <button
                 type="button"
-                className="inline-flex items-center justify-center rounded-md bg-neutral-100 px-3 py-1.5 text-sm font-medium text-neutral-800 shadow-sm hover:bg-neutral-200 disabled:opacity-60"
-                disabled={actionLoading || selectedIds.size === 0}
-                onClick={() => applyOrRejectSelected('rejected')}
+                className="inline-flex items-center justify-center rounded-md bg-neutral-100 px-3 py-1.5 text-sm font-medium text-neutral-800 shadow-sm hover:bg-neutral-200"
+                onClick={() => router.replace('/app')}
               >
-                {actionLoading ? 'Rejecting...' : 'Reject selected'}
+                To main page
               </button>
             </div>
           </>
