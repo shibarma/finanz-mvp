@@ -11,6 +11,9 @@ interface ScheduledExpenseRunRow {
   snapshot_amount: number;
   snapshot_comment: string | null;
   status: string;
+  scheduled_expenses?: {
+    name?: string | null;
+  } | null;
 }
 
 function createAnonClient(): SupabaseClient {
@@ -81,7 +84,7 @@ export async function GET(request: NextRequest) {
     const { data: runs, error: runsError } = await supabaseAdmin
       .from('scheduled_expense_runs')
       .select(
-        'id, user_id, scheduled_expense_id, run_date, snapshot_account_id, snapshot_category_id, snapshot_amount, snapshot_comment, status',
+        'id, user_id, scheduled_expense_id, run_date, snapshot_account_id, snapshot_category_id, snapshot_amount, snapshot_comment, status, scheduled_expenses(name)',
       )
       .eq('user_id', userId)
       .eq('status', 'due')

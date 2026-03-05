@@ -15,6 +15,11 @@ interface Account {
   currency: AccountCurrency | null;
 }
 
+interface Category {
+  id: string;
+  name: string;
+}
+
 interface ScheduledExpenseRun {
   id: string;
   user_id: string;
@@ -25,6 +30,9 @@ interface ScheduledExpenseRun {
   snapshot_amount: number;
   snapshot_comment: string | null;
   status: 'due';
+  scheduled_expenses?: {
+    name?: string | null;
+  } | null;
 }
 
 interface ScheduledExpenseDueResponse {
@@ -72,6 +80,7 @@ export default function ScheduledExpensesPage() {
   const [sessionToken, setSessionToken] = useState<string | null>(null);
 
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [runs, setRuns] = useState<ScheduledExpenseRun[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
@@ -85,6 +94,12 @@ export default function ScheduledExpensesPage() {
     accounts.forEach((acc) => map.set(acc.id, acc));
     return map;
   }, [accounts]);
+
+  const categoriesById = useMemo(() => {
+    const map = new Map<string, Category>();
+    categories.forEach((cat) => map.set(cat.id, cat));
+    return map;
+  }, [categories]);
 
   useEffect(() => {
     const init = async () => {
@@ -118,7 +133,21 @@ export default function ScheduledExpensesPage() {
 
         setAccounts((accountsData || []) as Account[]);
 
-        // 2) Ensure scheduled runs exist for today (server-side)
+        // 2) Load expense categories for resolving category names
+        const { data: categoriesData, error: categoriesError } = await supabase
+          .from('categories')
+          .select('id, name')
+          .eq('user_id', session.user.id)
+          .eq('kind', 'expense')
+          .order('created_at', { ascending: true });
+
+        if (categoriesError) {
+          throw new Error(categoriesError.message);
+        }
+
+        setCategories((categoriesData || []) as Category[]);
+
+        // 3) Ensure scheduled runs exist for today (server-side)
         if (accessToken) {
           const ensureResponse = await fetch('/api/scheduled-expenses/ensure', {
             method: 'POST',
@@ -135,7 +164,7 @@ export default function ScheduledExpensesPage() {
           }
         }
 
-        // 3) Load due runs list
+        // 4) Load due runs list
         await loadDueRuns(accessToken);
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Failed to load scheduled expenses.');
@@ -364,6 +393,13 @@ export default function ScheduledExpensesPage() {
                 const currency: AccountCurrency =
                   (account?.currency || 'EUR') as AccountCurrency;
                 const accountName = account?.name || 'Unknown account';
+                const category = run.snapshot_category_id
+                  ? categoriesById.get(run.snapshot_category_id)
+                  : null;
+                const ruleName =
+                  run.scheduled_expenses?.name && run.scheduled_expenses.name.trim().length > 0
+                    ? run.scheduled_expenses.name
+                    : null;
 
                 return (
                   <label
@@ -388,11 +424,16 @@ export default function ScheduledExpensesPage() {
                           <span className="text-xs text-neutral-500">{currency}</span>
                         </span>
                       </div>
+                      {ruleName && (
+                        <div className="text-xs font-medium text-neutral-900 mb-0.5">
+                          {ruleName}
+                        </div>
+                      )}
                       <div className="text-xs text-neutral-600 mb-1">
                         <span>{accountName}</span>
                         <span className="mx-1 text-neutral-400">•</span>
                         <span>
-                          {run.snapshot_category_id ? run.snapshot_category_id : '—'}
+                          {category ? category.name : '—'}
                         </span>
                       </div>
                       {run.snapshot_comment && (
