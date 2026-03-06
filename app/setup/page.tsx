@@ -91,6 +91,14 @@ interface ScheduledExpenseRule {
   created_at: string;
 }
 
+type ScheduledRunStatus = 'due' | 'applied' | 'rejected' | 'failed';
+
+interface ScheduledExpenseRunRow {
+  scheduled_expense_id: string;
+  run_date: string; // YYYY-MM-DD
+  status: ScheduledRunStatus;
+}
+
 // UTC-safe helpers for scheduled expenses recurrence (mirrors logic in
 // app/api/scheduled-expenses/ensure/route.ts)
 function parseYmdUtc(ymd: string): Date {
@@ -187,6 +195,86 @@ function getNextRunDateUtc(
   }
 
   return formatYmdUtc(d);
+}
+
+function advanceOnceUtc(ymd: string, frequency: ScheduledFrequency): string {
+  const date = parseYmdUtc(ymd);
+
+  switch (frequency) {
+    case 'daily': {
+      date.setUTCDate(date.getUTCDate() + 1);
+      return formatYmdUtc(date);
+    }
+    case 'weekly': {
+      date.setUTCDate(date.getUTCDate() + 7);
+      return formatYmdUtc(date);
+    }
+    case 'monthly': {
+      return formatYmdUtc(addMonthsClampedUtc(date, 1));
+    }
+    case 'quarterly': {
+      return formatYmdUtc(addMonthsClampedUtc(date, 3));
+    }
+    case 'yearly': {
+      return formatYmdUtc(addMonthsClampedUtc(date, 12));
+    }
+    default: {
+      date.setUTCDate(date.getUTCDate() + 1);
+      return formatYmdUtc(date);
+    }
+  }
+}
+
+function computeRunInfo(runs: ScheduledExpenseRunRow[]): {
+  dueSinceYmd: string | null;
+  lastRunYmd: string | null;
+} {
+  let dueSinceYmd: string | null = null;
+  let lastRunYmd: string | null = null;
+
+  for (const run of runs) {
+    if (run.status === 'due') {
+      if (dueSinceYmd === null || run.run_date < dueSinceYmd) {
+        dueSinceYmd = run.run_date;
+      }
+      continue;
+    }
+
+    if (run.status === 'applied' || run.status === 'rejected' || run.status === 'failed') {
+      if (lastRunYmd === null || run.run_date > lastRunYmd) {
+        lastRunYmd = run.run_date;
+      }
+    }
+  }
+
+  return { dueSinceYmd, lastRunYmd };
+}
+
+function computeNextRunYmd(
+  rule: ScheduledExpenseRule,
+  runs: ScheduledExpenseRunRow[],
+  todayYmdUtc: string,
+): string {
+  const { dueSinceYmd, lastRunYmd } = computeRunInfo(runs);
+
+  // If there exists a due run → Next run is the earliest due run
+  if (dueSinceYmd) return dueSinceYmd;
+
+  const startYmd = rule.start_date.slice(0, 10);
+
+  // No processed runs → compute next from start_date (>= today)
+  if (!lastRunYmd) {
+    return getNextRunDateUtc(startYmd, rule.frequency, todayYmdUtc);
+  }
+
+  // Otherwise: max(start_date, last_run + interval), then ensure >= today
+  const firstCandidate = advanceOnceUtc(lastRunYmd, rule.frequency);
+  const anchorYmd = firstCandidate < startYmd ? startYmd : firstCandidate;
+
+  if (anchorYmd >= todayYmdUtc) return anchorYmd;
+
+  // Reuse "catch-up" semantics from getNextRunDateUtc, but starting at anchorYmd
+  return getNextRunDateUtc(anchorYmd, rule.frequency, todayYmdUtc);
 }
 
 // Parse base_limit_eur: accepts "," and "." as decimal separator, rounds to 2 decimals
@@ -370,6 +458,9 @@ export default function SetupPage() {
 
   // Scheduled expenses
   const [scheduledRules, setScheduledRules] = useState<ScheduledExpenseRule[]>([]);
+  const [scheduledRuleRunsById, setScheduledRuleRunsById] = useState<
+    Map<string, ScheduledExpenseRunRow[]>
+  >(new Map());
   const [scheduledRulesLoading, setScheduledRulesLoading] = useState(false);
   const [scheduledRulesError, setScheduledRulesError] = useState<string | null>(null);
   const [scheduledRuleFormError, setScheduledRuleFormError] = useState<string | null>(null);
@@ -718,7 +809,37 @@ export default function SetupPage() {
         return;
       }
 
-      setScheduledRules((data || []) as ScheduledExpenseRule[]);
+      const ruleRows = (data || []) as ScheduledExpenseRule[];
+      setScheduledRules(ruleRows);
+
+      if (ruleRows.length === 0) {
+        setScheduledRuleRunsById(new Map());
+        return;
+      }
+
+      const ruleIds = ruleRows.map((r) => r.id);
+      const { data: runsData, error: runsError } = await supabase
+        .from('scheduled_expense_runs')
+        .select('scheduled_expense_id, run_date, status')
+        .in('scheduled_expense_id', ruleIds);
+
+      if (runsError) {
+        setScheduledRulesError(runsError.message);
+        setScheduledRuleRunsById(new Map());
+        return;
+      }
+
+      const runs = (runsData || []) as ScheduledExpenseRunRow[];
+      const map = new Map<string, ScheduledExpenseRunRow[]>();
+      for (const id of ruleIds) {
+        map.set(id, []);
+      }
+      for (const run of runs) {
+        const arr = map.get(run.scheduled_expense_id) || [];
+        arr.push(run);
+        map.set(run.scheduled_expense_id, arr);
+      }
+      setScheduledRuleRunsById(map);
     } catch (err) {
       setScheduledRulesError(
         err instanceof Error ? err.message : 'Failed to load scheduled expenses',
@@ -3822,11 +3943,9 @@ export default function SetupPage() {
                   ? categories.find((c) => c.id === rule.category_id)
                   : null;
                 const todayYmdUtc = new Date().toISOString().slice(0, 10);
-                const nextRunDate = getNextRunDateUtc(
-                  rule.start_date.slice(0, 10),
-                  rule.frequency,
-                  todayYmdUtc,
-                );
+                const runs = scheduledRuleRunsById.get(rule.id) || [];
+                const { dueSinceYmd, lastRunYmd } = computeRunInfo(runs);
+                const nextRunDate = computeNextRunYmd(rule, runs, todayYmdUtc);
 
                 return (
                   <div
@@ -3853,9 +3972,13 @@ export default function SetupPage() {
                         {category ? category.name : '—'} · {rule.amount.toFixed(2)} ·{' '}
                         {rule.frequency} · from {rule.start_date.slice(0, 10)}
                       </p>
-                      <p className="text-xs text-neutral-500">
-                        Next run: {nextRunDate}
-                      </p>
+                      {dueSinceYmd && (
+                        <p className="text-xs text-neutral-500">Due since: {dueSinceYmd}</p>
+                      )}
+                      {lastRunYmd && (
+                        <p className="text-xs text-neutral-500">Last run: {lastRunYmd}</p>
+                      )}
+                      <p className="text-xs text-neutral-500">Next run: {nextRunDate}</p>
                       {rule.comment_template && (
                         <p className="text-xs text-neutral-500">
                           Template: {rule.comment_template}
