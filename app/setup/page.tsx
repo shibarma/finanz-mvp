@@ -91,6 +91,104 @@ interface ScheduledExpenseRule {
   created_at: string;
 }
 
+// UTC-safe helpers for scheduled expenses recurrence (mirrors logic in
+// app/api/scheduled-expenses/ensure/route.ts)
+function parseYmdUtc(ymd: string): Date {
+  const [y, m, d] = ymd.split('-').map((part) => Number(part));
+  return new Date(Date.UTC(y, m - 1, d));
+}
+
+function formatYmdUtc(date: Date): string {
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(date.getUTCDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function daysInMonthUtc(year: number, monthIndex0: number): number {
+  return new Date(Date.UTC(year, monthIndex0 + 1, 0)).getUTCDate();
+}
+
+function addMonthsClampedUtc(date: Date, months: number): Date {
+  const year = date.getUTCFullYear();
+  const monthIndex0 = date.getUTCMonth();
+  const day = date.getUTCDate();
+
+  const newMonth = monthIndex0 + months;
+  const newYear = year + Math.floor(newMonth / 12);
+  const newMonthIndex0 = ((newMonth % 12) + 12) % 12;
+
+  const maxDay = daysInMonthUtc(newYear, newMonthIndex0);
+  const clampedDay = Math.min(day, maxDay);
+
+  return new Date(Date.UTC(newYear, newMonthIndex0, clampedDay));
+}
+
+function getNextRunDateUtc(
+  startYmd: string,
+  frequency: ScheduledFrequency,
+  todayYmdUtc: string,
+): string {
+  if (!startYmd) return todayYmdUtc;
+
+  // If start is in the future or today, the next run is the start date itself
+  if (startYmd >= todayYmdUtc) {
+    return startYmd;
+  }
+
+  const startDate = parseYmdUtc(startYmd);
+  const todayDate = parseYmdUtc(todayYmdUtc);
+
+  let d = new Date(startDate.getTime());
+
+  switch (frequency) {
+    case 'daily': {
+      while (d < todayDate) {
+        d.setUTCDate(d.getUTCDate() + 1);
+      }
+      break;
+    }
+
+    case 'weekly': {
+      while (d < todayDate) {
+        d.setUTCDate(d.getUTCDate() + 7);
+      }
+      break;
+    }
+
+    case 'monthly': {
+      while (d < todayDate) {
+        d = addMonthsClampedUtc(d, 1);
+      }
+      break;
+    }
+
+    case 'quarterly': {
+      while (d < todayDate) {
+        d = addMonthsClampedUtc(d, 3);
+      }
+      break;
+    }
+
+    case 'yearly': {
+      while (d < todayDate) {
+        d = addMonthsClampedUtc(d, 12);
+      }
+      break;
+    }
+
+    default: {
+      // Fallback to daily semantics
+      while (d < todayDate) {
+        d.setUTCDate(d.getUTCDate() + 1);
+      }
+      break;
+    }
+  }
+
+  return formatYmdUtc(d);
+}
+
 // Parse base_limit_eur: accepts "," and "." as decimal separator, rounds to 2 decimals
 function parseBaseLimitEur(input: string): { ok: true; value: number } | { ok: false; error: string } {
   if (!input || !input.trim()) return { ok: false, error: 'Enter amount.' };
@@ -3723,6 +3821,12 @@ export default function SetupPage() {
                 const category = rule.category_id
                   ? categories.find((c) => c.id === rule.category_id)
                   : null;
+                const todayYmdUtc = new Date().toISOString().slice(0, 10);
+                const nextRunDate = getNextRunDateUtc(
+                  rule.start_date.slice(0, 10),
+                  rule.frequency,
+                  todayYmdUtc,
+                );
 
                 return (
                   <div
@@ -3748,6 +3852,9 @@ export default function SetupPage() {
                         {account ? account.name : 'Unknown account'} ·{' '}
                         {category ? category.name : '—'} · {rule.amount.toFixed(2)} ·{' '}
                         {rule.frequency} · from {rule.start_date.slice(0, 10)}
+                      </p>
+                      <p className="text-xs text-neutral-500">
+                        Next run: {nextRunDate}
                       </p>
                       {rule.comment_template && (
                         <p className="text-xs text-neutral-500">

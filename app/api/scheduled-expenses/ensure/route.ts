@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
+type ScheduledFrequency = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'yearly';
+
 interface ScheduledExpenseRule {
   id: string;
   user_id: string;
@@ -9,6 +11,7 @@ interface ScheduledExpenseRule {
   category_id: string | null;
   amount: number;
   comment_template: string | null;
+  frequency: ScheduledFrequency;
 }
 
 interface ExistingRunRow {
@@ -54,18 +57,95 @@ function createAdminClient(): SupabaseClient {
   });
 }
 
-function generateDateRange(startYmd: string, endYmd: string): string[] {
+// ---- UTC-safe date helpers ----
+
+function parseYmdUtc(ymd: string): Date {
+  const [y, m, d] = ymd.split('-').map((part) => Number(part));
+  return new Date(Date.UTC(y, m - 1, d));
+}
+
+function formatYmdUtc(date: Date): string {
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(date.getUTCDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function daysInMonthUtc(year: number, monthIndex0: number): number {
+  // Day 0 of next month is the last day of current month
+  return new Date(Date.UTC(year, monthIndex0 + 1, 0)).getUTCDate();
+}
+
+function addMonthsClampedUtc(date: Date, months: number): Date {
+  const year = date.getUTCFullYear();
+  const monthIndex0 = date.getUTCMonth();
+  const day = date.getUTCDate();
+
+  const newMonth = monthIndex0 + months;
+  const newYear = year + Math.floor(newMonth / 12);
+  const newMonthIndex0 = ((newMonth % 12) + 12) % 12;
+
+  const maxDay = daysInMonthUtc(newYear, newMonthIndex0);
+  const clampedDay = Math.min(day, maxDay);
+
+  return new Date(Date.UTC(newYear, newMonthIndex0, clampedDay));
+}
+
+function generateRunDates(
+  startYmd: string,
+  endYmd: string,
+  frequency: ScheduledFrequency,
+): string[] {
   if (!startYmd || !endYmd || startYmd > endYmd) return [];
 
-  const result: string[] = [];
-  const start = new Date(`${startYmd}T00:00:00.000Z`);
-  const end = new Date(`${endYmd}T00:00:00.000Z`);
+  const startDate = parseYmdUtc(startYmd);
+  const endDate = parseYmdUtc(endYmd);
 
-  for (let d = new Date(start.getTime()); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
-    const year = d.getUTCFullYear();
-    const month = String(d.getUTCMonth() + 1).padStart(2, '0');
-    const day = String(d.getUTCDate()).padStart(2, '0');
-    result.push(`${year}-${month}-${day}`);
+  const result: string[] = [];
+
+  switch (frequency) {
+    case 'daily': {
+      for (let d = new Date(startDate.getTime()); d <= endDate; d.setUTCDate(d.getUTCDate() + 1)) {
+        result.push(formatYmdUtc(d));
+      }
+      break;
+    }
+
+    case 'weekly': {
+      for (let d = new Date(startDate.getTime()); d <= endDate; d.setUTCDate(d.getUTCDate() + 7)) {
+        result.push(formatYmdUtc(d));
+      }
+      break;
+    }
+
+    case 'monthly': {
+      for (let d = new Date(startDate.getTime()); d <= endDate; d = addMonthsClampedUtc(d, 1)) {
+        result.push(formatYmdUtc(d));
+      }
+      break;
+    }
+
+    case 'quarterly': {
+      for (let d = new Date(startDate.getTime()); d <= endDate; d = addMonthsClampedUtc(d, 3)) {
+        result.push(formatYmdUtc(d));
+      }
+      break;
+    }
+
+    case 'yearly': {
+      for (let d = new Date(startDate.getTime()); d <= endDate; d = addMonthsClampedUtc(d, 12)) {
+        result.push(formatYmdUtc(d));
+      }
+      break;
+    }
+
+    default: {
+      // Fallback to daily if an unknown frequency somehow appears
+      for (let d = new Date(startDate.getTime()); d <= endDate; d.setUTCDate(d.getUTCDate() + 1)) {
+        result.push(formatYmdUtc(d));
+      }
+      break;
+    }
   }
 
   return result;
@@ -112,7 +192,7 @@ export async function POST(request: NextRequest) {
     const { data: rules, error: rulesError } = await supabaseAdmin
       .from('scheduled_expenses')
       .select(
-        'id, user_id, start_date, account_id, category_id, amount, comment_template',
+        'id, user_id, start_date, account_id, category_id, amount, comment_template, frequency',
       )
       .eq('user_id', userId)
       .eq('is_active', true)
@@ -156,7 +236,7 @@ export async function POST(request: NextRequest) {
         (existingRuns || ([] as ExistingRunRow[])).map((row) => row.run_date),
       );
 
-      const allDates = generateDateRange(rule.start_date, todayYmdUtc);
+      const allDates = generateRunDates(rule.start_date, todayYmdUtc, rule.frequency);
       for (const runDate of allDates) {
         if (existingSet.has(runDate)) continue;
 
